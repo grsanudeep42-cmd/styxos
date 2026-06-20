@@ -1,0 +1,62 @@
+Styx OS: UART serial initialized on COM1.
+Styx OS: Setting up IDT...
+IDT Init: Detected Code Segment (CS) selector: 0x28
+Styx OS: Remapping legacy 8259 PIC...
+Styx OS: Initializing PIT (100Hz)...
+PIT Init: Timer set to 100 Hz (divisor 11931)
+Styx OS: Initializing PS/2 Keyboard driver...
+Keyboard Init: Handler registered on IRQ1
+Styx OS: Enabling interrupts (sti)...
+Styx OS: Initializing Physical Memory Manager...
+PMM: Memmap entry 0: base=0x1000, len=0x69000, type=5
+PMM: Memmap entry 1: base=0x6A000, len=0x35000, type=0
+PMM: Memmap entry 2: base=0x9FC00, len=0x400, type=1
+PMM: Memmap entry 3: base=0xF0000, len=0x10000, type=1
+PMM: Memmap entry 4: base=0x100000, len=0x7E33000, type=0
+PMM: Memmap entry 5: base=0x7F33000, len=0x4000, type=5
+PMM: Memmap entry 6: base=0x7F37000, len=0x7000, type=6
+PMM: Memmap entry 7: base=0x7F3E000, len=0x9000, type=5
+PMM: Memmap entry 8: base=0x7F47000, len=0x1C000, type=0
+PMM: Memmap entry 9: base=0x7F63000, len=0x7C000, type=5
+PMM: Memmap entry 10: base=0x7FDF000, len=0x21000, type=1
+PMM: Memmap entry 11: base=0xB0000000, len=0x10000000, type=1
+PMM: Memmap entry 12: base=0xFD000000, len=0x3E8000, type=7
+PMM: Memmap entry 13: base=0xFED1C000, len=0x4000, type=1
+PMM: Memmap entry 14: base=0xFFFC0000, len=0x40000, type=1
+PMM: Memmap entry 15: base=0xFD00000000, len=0x300000000, type=1
+PMM: Total frames tracked: 32611, Bitmap size: 4077 bytes
+PMM: Bitmap placed at physical=0x6A000 (virtual=0xFFFF80000006A000)
+PMM: Initialization complete.
+  - Total Usable Memory: 126 MB
+  - Free Memory: 126 MB (32387 frames)
+Styx OS: Usable memory detected: 126 MB
+Styx OS: Free memory after PMM init: 126 MB
+Styx OS: Running PMM Sanity Test...
+  Allocated Frame 1: 0x6B000
+  Allocated Frame 2 (middle): 0x6C000
+  Allocated Frame 3: 0x6D000
+  Freeing Frame 2: 0x6C000
+  Allocated Frame again: 0x6C000
+  SUCCESS: Frame reuse verified successfully!
+  Freeing all sanity test frames...
+Styx OS: PMM Sanity Test complete.
+Styx OS: Boot sequence complete. Entering idle loop.
+PIT: 200 ticks
+PIT: 400 ticks
+PIT: 600 ticks
+PIT: 800 ticks
+PIT: 1000 ticks
+PIT: 1200 ticks
+PIT: 1400 ticks
+PIT: 1600 ticks
+PIT: 1800 ticks
+PIT: 2000 ticks
+PIT: 2200 ticks
+PIT: 2400 ticks
+PIT: 2600 ticks
+PIT: 2800 ticks
+PIT: 3000 ticks
+PIT: 3200 ticks
+PIT: 3400 ticks
+PIT: 3600 ticks
+PIT: 3800 ticks

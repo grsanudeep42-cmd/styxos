@@ -29,4 +29,5 @@ iso_root/
 .DS_Store
 limine-binary/
 serial.log
+qemu_debug.log
 *.log

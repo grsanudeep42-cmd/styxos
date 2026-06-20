@@ -10,6 +10,7 @@
 #include "pit.h"
 #include "keyboard.h"
 #include "pmm.h"
+#include "vmm.h"
 
 /* ── Limine protocol requests ─────────────────────────────────────────── */
 
@@ -17,20 +18,26 @@ __attribute__((used, section(".limine_requests")))
 LIMINE_BASE_REVISION(3)
 
 __attribute__((used, section(".limine_requests")))
-static volatile struct limine_framebuffer_request framebuffer_request = {
+volatile struct limine_framebuffer_request framebuffer_request = {
     .id       = LIMINE_FRAMEBUFFER_REQUEST,
     .revision = 0
 };
 
 __attribute__((used, section(".limine_requests")))
-static volatile struct limine_memmap_request memmap_request = {
+volatile struct limine_memmap_request memmap_request = {
     .id       = LIMINE_MEMMAP_REQUEST,
     .revision = 0
 };
 
 __attribute__((used, section(".limine_requests")))
-static volatile struct limine_hhdm_request hhdm_request = {
+volatile struct limine_hhdm_request hhdm_request = {
     .id       = LIMINE_HHDM_REQUEST,
+    .revision = 0
+};
+
+__attribute__((used, section(".limine_requests")))
+volatile struct limine_kernel_address_request kernel_address_request = {
+    .id       = LIMINE_KERNEL_ADDRESS_REQUEST,
     .revision = 0
 };
 
@@ -159,12 +166,43 @@ void _start(void) {
     pmm_free_frame(f4); // Same as f2
     pmm_free_frame(f3);
     serial_printf("Styx OS: PMM Sanity Test complete.\n");
+    // 10. Initialize Virtual Memory Manager (VMM)
+    serial_printf("Styx OS: Initializing Virtual Memory Manager (VMM)...\n");
+    vmm_init(hhdm_request.response->offset);
+    serial_printf("Styx OS: VMM initialization check passed.\n");
+
+    // 11. VMM Sanity Test (temporary, removed in later milestones)
+    serial_printf("Styx OS: Running VMM Sanity Test...\n");
+    void *phys_frame = pmm_alloc_frame();
+    uint64_t test_virt = 0xffff900000000000ULL;
+    serial_printf("  Mapping virt %p to phys %p...\n", (void *)test_virt, phys_frame);
+    vmm_map_page(test_virt, (uint64_t)phys_frame, PTE_PRESENT | PTE_WRITABLE);
+    
+    serial_printf("  Writing 0xDEADBEEF to virt %p...\n", (void *)test_virt);
+    volatile uint64_t *ptr = (volatile uint64_t *)test_virt;
+    *ptr = 0xDEADBEEF;
+    
+    uint64_t read_val = *ptr;
+    serial_printf("  Read back value from virt %p: %p\n", (void *)test_virt, (void *)read_val);
+    if (read_val == 0xDEADBEEF) {
+        serial_printf("  SUCCESS: Value matches!\n");
+    } else {
+        serial_printf("  ERROR: Value mismatch: expected 0xDEADBEEF, got %p\n", (void *)read_val);
+    }
+    
+    serial_printf("  Unmapping virt %p...\n", (void *)test_virt);
+    vmm_unmap_page(test_virt);
+    
+    serial_printf("  Freeing physical frame %p...\n", phys_frame);
+    pmm_free_frame(phys_frame);
+    
+    serial_printf("  Attempting to read from virt %p (should trigger Page Fault)...\n", (void *)test_virt);
+    read_val = *ptr;
+    serial_printf("  ERROR: Read succeeded after unmap! Read value: %p\n", (void *)read_val);
 
     serial_printf("Styx OS: Boot sequence complete. Entering idle loop.\n");
 
-
-
-    // 9. Idle loop: CPU goes to low-power state and wakes up on interrupts
+    // 12. Idle loop: CPU goes to low-power state and wakes up on interrupts
     for (;;) {
         __asm__ volatile ("hlt");
     }

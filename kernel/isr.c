@@ -37,7 +37,6 @@ static const char *exception_messages[] = {
     "Security Exception",
     "Reserved"
 };
-
 void isr_handler(uint64_t vector, struct registers *regs) {
     serial_printf("\n================ EXCEPTION OCCURRED ================\n");
     if (vector < 32) {
@@ -46,6 +45,11 @@ void isr_handler(uint64_t vector, struct registers *regs) {
         serial_printf("Exception: Unknown (%d)\n", vector);
     }
     serial_printf("Error Code: %x\n", regs->error_code);
+    if (vector == 14) {
+        uint64_t cr2;
+        __asm__ volatile("mov %%cr2, %0" : "=r"(cr2));
+        serial_printf("Faulting Address (CR2): %p\n", (void *)cr2);
+    }
     serial_printf("RIP: %p   CS: %x   RFLAGS: %p\n", regs->rip, regs->cs, regs->rflags);
     serial_printf("RSP: %p   SS: %x\n", regs->rsp, regs->ss);
     serial_printf("RAX: %p   RBX: %p   RCX: %p   RDX: %p\n", regs->rax, regs->rbx, regs->rcx, regs->rdx);

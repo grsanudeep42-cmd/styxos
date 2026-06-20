@@ -29,5 +29,8 @@ exec qemu-system-x86_64 \
     -m 128M             \
     -cdrom "$ISO"       \
     -boot d             \
+    -display none       \
     -serial stdio       \
-    -no-reboot
+    -no-reboot          \
+    -d int,cpu_reset    \
+    -D qemu_debug.log

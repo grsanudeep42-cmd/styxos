@@ -27,3 +27,6 @@ iso_root/
 
 # OS-level junk
 .DS_Store
+limine-binary/
+serial.log
+*.log

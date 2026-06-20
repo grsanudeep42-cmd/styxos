@@ -48,7 +48,8 @@ LDFLAGS := \
 # ── Sources & outputs ──────────────────────────────────────────────────────
 SRCS := kernel/main.c kernel/font.c kernel/fb.c kernel/string.c \
         kernel/idt.c kernel/isr.c kernel/irq.c kernel/pit.c \
-        kernel/keyboard.c kernel/serial.c kernel/pmm.c kernel/vmm.c
+        kernel/keyboard.c kernel/serial.c kernel/pmm.c kernel/vmm.c \
+        kernel/heap.c
 ASMS := kernel/isr.asm kernel/irq.asm
 OBJS := $(SRCS:.c=.o) $(ASMS:.asm=.asm.o)
 KERNEL := kernel/kernel

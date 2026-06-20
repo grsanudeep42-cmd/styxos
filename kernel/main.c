@@ -11,6 +11,7 @@
 #include "keyboard.h"
 #include "pmm.h"
 #include "vmm.h"
+#include "heap.h"
 
 /* ── Limine protocol requests ─────────────────────────────────────────── */
 
@@ -171,34 +172,123 @@ void _start(void) {
     vmm_init(hhdm_request.response->offset);
     serial_printf("Styx OS: VMM initialization check passed.\n");
 
-    // 11. VMM Sanity Test (temporary, removed in later milestones)
-    serial_printf("Styx OS: Running VMM Sanity Test...\n");
-    void *phys_frame = pmm_alloc_frame();
-    uint64_t test_virt = 0xffff900000000000ULL;
-    serial_printf("  Mapping virt %p to phys %p...\n", (void *)test_virt, phys_frame);
-    vmm_map_page(test_virt, (uint64_t)phys_frame, PTE_PRESENT | PTE_WRITABLE);
-    
-    serial_printf("  Writing 0xDEADBEEF to virt %p...\n", (void *)test_virt);
-    volatile uint64_t *ptr = (volatile uint64_t *)test_virt;
-    *ptr = 0xDEADBEEF;
-    
-    uint64_t read_val = *ptr;
-    serial_printf("  Read back value from virt %p: %p\n", (void *)test_virt, (void *)read_val);
-    if (read_val == 0xDEADBEEF) {
-        serial_printf("  SUCCESS: Value matches!\n");
-    } else {
-        serial_printf("  ERROR: Value mismatch: expected 0xDEADBEEF, got %p\n", (void *)read_val);
+    // 11. Initialize Kernel Heap Allocator
+    serial_printf("Styx OS: Initializing Kernel Heap (kmalloc/kfree)...\n");
+    heap_init();
+    serial_printf("Styx OS: Heap initialized.\n");
+
+    // ── HEAP SANITY TEST (temporary — remove after confirming) ───────────
+    // Tests: allocation, write/read-back pattern, address monotonicity,
+    //        alignment, block reuse after kfree, kcalloc zeroing,
+    //        and misuse detection (double-free, bad pointer).
+    serial_printf("\n--- HEAP SANITY TEST BEGIN ---\n");
+
+    // 11a. Allocate several blocks of varying sizes
+    void *h1 = kmalloc(16);
+    void *h2 = kmalloc(256);
+    void *h3 = kmalloc(4096);
+    void *h4 = kmalloc(1024);
+
+    serial_printf("  h1 (16  B) = %p\n", h1);
+    serial_printf("  h2 (256 B) = %p\n", h2);
+    serial_printf("  h3 (4096B) = %p\n", h3);
+    serial_printf("  h4 (1024B) = %p\n", h4);
+
+    // Verify addresses are monotonically increasing
+    int mono_ok = ((uint64_t)h2 > (uint64_t)h1) &&
+                  ((uint64_t)h3 > (uint64_t)h2) &&
+                  ((uint64_t)h4 > (uint64_t)h3);
+    serial_printf("  Monotonically increasing: %s\n", mono_ok ? "PASS" : "FAIL");
+
+    // Verify 16-byte alignment
+    int align_ok = (((uint64_t)h1 & 0xF) == 0) &&
+                   (((uint64_t)h2 & 0xF) == 0) &&
+                   (((uint64_t)h3 & 0xF) == 0) &&
+                   (((uint64_t)h4 & 0xF) == 0);
+    serial_printf("  All 16-byte aligned: %s\n", align_ok ? "PASS" : "FAIL");
+
+    // 11b. Write distinct patterns into each block
+    if (h1) {
+        uint8_t *p = (uint8_t *)h1;
+        for (int i = 0; i < 16;   i++) p[i] = 0xAA;
     }
-    
-    serial_printf("  Unmapping virt %p...\n", (void *)test_virt);
-    vmm_unmap_page(test_virt);
-    
-    serial_printf("  Freeing physical frame %p...\n", phys_frame);
-    pmm_free_frame(phys_frame);
-    
-    serial_printf("  Attempting to read from virt %p (should trigger Page Fault)...\n", (void *)test_virt);
-    read_val = *ptr;
-    serial_printf("  ERROR: Read succeeded after unmap! Read value: %p\n", (void *)read_val);
+    if (h2) {
+        uint8_t *p = (uint8_t *)h2;
+        for (int i = 0; i < 256;  i++) p[i] = 0xBB;
+    }
+    if (h3) {
+        uint8_t *p = (uint8_t *)h3;
+        for (int i = 0; i < 4096; i++) p[i] = 0xCC;
+    }
+    if (h4) {
+        uint8_t *p = (uint8_t *)h4;
+        for (int i = 0; i < 1024; i++) p[i] = 0xDD;
+    }
+
+    // 11c. Read back and verify patterns (proves no overlap)
+    int rw_ok = 1;
+    if (h1) {
+        uint8_t *p = (uint8_t *)h1;
+        for (int i = 0; i < 16;   i++) if (p[i] != 0xAA) { rw_ok = 0; break; }
+    }
+    if (h2 && rw_ok) {
+        uint8_t *p = (uint8_t *)h2;
+        for (int i = 0; i < 256;  i++) if (p[i] != 0xBB) { rw_ok = 0; break; }
+    }
+    if (h3 && rw_ok) {
+        uint8_t *p = (uint8_t *)h3;
+        for (int i = 0; i < 4096; i++) if (p[i] != 0xCC) { rw_ok = 0; break; }
+    }
+    if (h4 && rw_ok) {
+        uint8_t *p = (uint8_t *)h4;
+        for (int i = 0; i < 1024; i++) if (p[i] != 0xDD) { rw_ok = 0; break; }
+    }
+    serial_printf("  Write/read-back pattern (no overlap): %s\n",
+                  rw_ok ? "PASS" : "FAIL");
+
+    // 11d. Free the two middle blocks (h2 and h3)
+    serial_printf("  Freeing h2=%p and h3=%p...\n", h2, h3);
+    kfree(h2);
+    kfree(h3);
+
+    // 11e. Allocate something that should reuse h2 (256 B freed) —
+    //      a 128-byte allocation should fit into h2's slot.
+    void *h5 = kmalloc(128);
+    serial_printf("  h5 (128 B) = %p  (should reuse h2 slot at %p)\n", h5, h2);
+    int reuse_ok = (h5 == h2); // exact reuse expected after split
+    serial_printf("  Block reuse: %s\n", reuse_ok ? "PASS" : "NOTE - allocator may differ");
+
+    // 11f. kcalloc test — must return zeroed memory
+    uint64_t *zp = (uint64_t *)kcalloc(4, sizeof(uint64_t));
+    int zero_ok = 1;
+    if (zp) {
+        for (int i = 0; i < 4; i++) if (zp[i] != 0) { zero_ok = 0; break; }
+    } else {
+        zero_ok = 0;
+    }
+    serial_printf("  kcalloc(4, 8) zeroed: %s  ptr=%p\n",
+                  zero_ok ? "PASS" : "FAIL", (void *)zp);
+
+    // 11g. Misuse detection: double-free (should log error, not crash)
+    serial_printf("  Double-free test (expect HEAP ERROR log):\n");
+    kfree(h2); // h2 was already freed — double-free!
+
+    // 11h. Misuse detection: free a bad pointer
+    serial_printf("  Bad-pointer kfree test (expect HEAP ERROR log):\n");
+    uint64_t dummy_val = 0xDEAD;
+    kfree((void *)&dummy_val); // not a heap pointer
+
+    // 11i. Free all remaining live allocations, then dump final state
+    kfree(h1);
+    kfree(h4);
+    kfree(h5);
+    if (zp) kfree(zp);
+
+    serial_printf("  Final heap state after freeing all allocations:\n");
+    heap_dump();
+
+    serial_printf("--- HEAP SANITY TEST END ---\n\n");
+    // ── END HEAP SANITY TEST ──────────────────────────────────────────────
 
     serial_printf("Styx OS: Boot sequence complete. Entering idle loop.\n");
 

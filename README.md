@@ -166,8 +166,15 @@ sudo apt install xorriso
 | Milestone | Goal                                           | Status |
 |-----------|------------------------------------------------|--------|
 | 1         | Boot, framebuffer text, halt                   | ✅ done |
-| 2         | GDT reload + IDT + keyboard interrupt          | ⬜      |
-| 3         | Physical memory manager (bitmap allocator)     | ⬜      |
-| 4         | Virtual memory / paging (4-level, own tables)  | ⬜      |
-| 5         | Capability-based IPC primitives                | ⬜      |
-| 6         | First userspace task (ring 3)                  | ⬜      |
+| 2         | GDT reload + IDT + keyboard interrupt          | ✅ done |
+| 3         | Physical memory manager (bitmap allocator)     | ✅ done |
+| 4         | Virtual memory / paging (4-level, own tables)  | ✅ done |
+| 5         | Capability-based IPC primitives                | 🔵 in progress |
+| 6         | First userspace task (ring 3)                  | ⬜ planned |
+| 7         | Filesystem + USB storage driver                | ⬜ planned |
+| 8         | Pre-boot authentication (FIDO2)                | ⬜ planned |
+| 9         | USB encryption + self-destruct                 | ⬜ planned |
+| 10        | Session snapshot system                        | ⬜ planned |
+| 11        | Network stack + Tor + traffic padding          | ⬜ planned |
+| 12        | Usable shell + first real environment          | ⬜ planned |
+| 13        | TPM attestation + verified boot chain          | 🔷 research |

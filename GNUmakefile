@@ -61,7 +61,11 @@ SRCS := kernel/main.c kernel/font.c kernel/fb.c kernel/string.c \
         kernel/xhci.c \
         kernel/usb_msc.c \
         kernel/fat32.c \
-        kernel/vfs.c
+        kernel/vfs.c \
+        kernel/crypto.c \
+        kernel/usb_hid.c \
+        kernel/fido2.c \
+        kernel/auth.c
 
 ASMS := kernel/isr.asm kernel/irq.asm kernel/task.asm kernel/syscall.asm
 OBJS := $(SRCS:.c=.o) $(ASMS:.asm=.asm.o)

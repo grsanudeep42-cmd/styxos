@@ -39,3 +39,16 @@ int memcmp(const void *a, const void *b, size_t n) {
     }
     return 0;
 }
+
+size_t strlen(const char *s) {
+    size_t len = 0;
+    while (s[len]) len++;
+    return len;
+}
+
+char *strcat(char *dest, const char *src) {
+    char *d = dest;
+    while (*d) d++;
+    while ((*d++ = *src++));
+    return dest;
+}

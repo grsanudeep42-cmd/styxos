@@ -23,6 +23,7 @@
 #include "xhci.h"
 #include "usb_msc.h"
 #include "vfs.h"
+#include "auth.h"
 #include "user_init.bin.h"
 
 /* ── Limine protocol requests ─────────────────────────────────────────── */
@@ -456,6 +457,12 @@ void _start(void) {
     serial_printf("\n--- M7 USB BOOT BEGIN ---\n");
     bool usb_ok = xhci_init() && usb_msc_init();
     vfs_init();  /* mounts FAT32 if USB is ready; no-op otherwise */
+
+    // -- M8: Pre-boot Authentication (FIDO2) --
+    if (!auth_preboot()) {
+        serial_printf("[M8] Pre-boot authentication failed.\n");
+        for (;;) __asm__ volatile("hlt");
+    }
 
     uint64_t entry = 0;
     task_t *utask  = NULL;

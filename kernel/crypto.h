@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #define SHA512_DIGEST_SIZE 64
 #define SHA512_BLOCK_SIZE  128
@@ -21,3 +22,7 @@ void hmac_sha512(const uint8_t *key, size_t key_len, const uint8_t *data, size_t
 
 void hkdf_sha512_extract(const uint8_t *salt, size_t salt_len, const uint8_t *ikm, size_t ikm_len, uint8_t *prk);
 void hkdf_sha512_expand(const uint8_t *prk, const uint8_t *info, size_t info_len, uint8_t *okm, size_t okm_len);
+
+// Perform self-tests on cryptographic primitives (SHA-512, HMAC, HKDF, AES, XTS).
+// Returns true if all tests pass.
+bool crypto_self_test(void);

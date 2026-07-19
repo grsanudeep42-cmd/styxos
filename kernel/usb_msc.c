@@ -6,7 +6,13 @@
 #include "xhci.h"
 #include "serial.h"
 #include "heap.h"
+#include "xts.h"
+#include "integrity.h"
+#include "destruct.h"
 #include <stdint.h>
+
+bool g_encryption_enabled = false;
+aes256_xts_ctx_t g_xts_ctx;
 
 /* ── BOT structures ──────────────────────────────────────────────────────── */
 
@@ -110,7 +116,31 @@ int usb_msc_read_sector(uint32_t lba, void *buf) {
     cbw.CBWCB[4] = (lba >>  8) & 0xFF;
     cbw.CBWCB[5] =  lba        & 0xFF;
     cbw.CBWCB[8] = 1; /* transfer length = 1 block */
-    return bot_execute(&cbw, buf, 512, true);
+    int rc = bot_execute(&cbw, buf, 512, true);
+    if (rc == 0 && g_encryption_enabled) {
+        aes256_xts_decrypt_sector(&g_xts_ctx, lba, (const uint8_t *)buf, (uint8_t *)buf);
+        if (!integrity_verify_sector(lba, (const uint8_t *)buf)) {
+            destruct_trigger("Sector integrity verification mismatch");
+        }
+    }
+    return rc;
+}
+
+int usb_msc_write_sector(uint32_t lba, const void *buf) {
+    uint8_t temp_buf[512];
+    const void *data_ptr = buf;
+    if (g_encryption_enabled) {
+        aes256_xts_encrypt_sector(&g_xts_ctx, lba, (const uint8_t *)buf, temp_buf);
+        data_ptr = temp_buf;
+    }
+    cbw_t cbw = make_cbw(512, 0x00, 10);
+    cbw.CBWCB[0] = 0x2A; /* WRITE (10) */
+    cbw.CBWCB[2] = (lba >> 24) & 0xFF;
+    cbw.CBWCB[3] = (lba >> 16) & 0xFF;
+    cbw.CBWCB[4] = (lba >>  8) & 0xFF;
+    cbw.CBWCB[5] =  lba        & 0xFF;
+    cbw.CBWCB[8] = 1; /* transfer length = 1 block */
+    return bot_execute(&cbw, (void *)data_ptr, 512, false);
 }
 
 uint32_t usb_msc_sector_count(void) { return g_sector_cnt; }

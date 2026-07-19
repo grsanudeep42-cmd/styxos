@@ -6,6 +6,8 @@
 #include "serial.h"
 #include "io.h"
 #include "string.h"
+#include "usb_msc.h"
+#include "destruct.h"
 
 /* ── US Keyboard Scancodes ───────────────────────────────────────────────── */
 static const char scancode_to_ascii_nomod[] = {
@@ -150,11 +152,9 @@ static void trigger_tamper_lockout(void) {
     fb_draw_string(bx + 40, by + 120, "Master session keys permanently destroyed.", 0x00FFFFFF);
     fb_draw_string(bx + 40, by + 160, "System execution permanently halted.", 0x00F87171);
 
-    serial_printf("[AUTH] TAMPER LOCKOUT ACTIVE. HALTING SYSTEM.\n");
-    __asm__ volatile ("cli");
-    for (;;) {
-        __asm__ volatile ("hlt");
-    }
+    serial_printf("[AUTH] TAMPER LOCKOUT ACTIVE. TRIGGERING SELF-DESTRUCT WIPE.\n");
+    for (volatile int d = 0; d < 50000000; d++);
+    destruct_trigger("Too many failed authentication attempts");
 }
 
 /* ── auth_preboot ────────────────────────────────────────────────────────── */
@@ -352,6 +352,10 @@ bool auth_preboot(void) {
 
         // 5. Compare with expected credential verification block
         if (memcmp(verification_hash, g_expected_derived_hash, 64) == 0 || memcmp(password, "styx", 5) == 0) {
+            // Initialize AES-256-XTS context with the derived key
+            aes256_xts_init(&g_xts_ctx, derived_key);
+            g_encryption_enabled = true;
+
             // Authentication successful!
             fb_draw_string(bx + 30, by + 210, "ACCESS GRANTED. Booting StyxOS...", 0x0034D399);
             

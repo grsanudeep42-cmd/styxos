@@ -24,6 +24,11 @@
 #include "usb_msc.h"
 #include "vfs.h"
 #include "auth.h"
+#include "string.h"
+#include "crypto.h"
+#include "integrity.h"
+#include "destruct.h"
+#include "io.h"
 #include "user_init.bin.h"
 
 /* ── Limine protocol requests ─────────────────────────────────────────── */
@@ -66,6 +71,52 @@ LIMINE_REQUESTS_END_MARKER
 static void halt(void) {
     __asm__ volatile ("cli");
     for (;;) __asm__ volatile ("hlt");
+}
+
+static void run_m9_verification_tests(void) {
+    serial_printf("\n--- M9 INTEGRATION TEST SUITE ---\n");
+
+    uint8_t orig_data[512];
+    uint8_t read_data[512];
+
+    for (int i = 0; i < 512; i++) {
+        orig_data[i] = (uint8_t)(i & 0xFF);
+    }
+
+    serial_printf("[TEST] Writing test sector to LBA 10 (encrypted)...\n");
+    usb_msc_write_sector(10, orig_data);
+
+    // Disable encryption temporarily to read raw ciphertext
+    g_encryption_enabled = false;
+    serial_printf("[TEST] Reading raw sector from LBA 10 (encryption disabled)...\n");
+    usb_msc_read_sector(10, read_data);
+
+    // Ciphertext should not match plaintext
+    if (memcmp(orig_data, read_data, 512) == 0) {
+        serial_printf("[TEST] ERROR: Data on disk is not encrypted!\n");
+        return;
+    }
+    serial_printf("[TEST] PASSED: Disk sector contains ciphertext.\n");
+
+    // Enable encryption back
+    g_encryption_enabled = true;
+    serial_printf("[TEST] Reading sector from LBA 10 (encryption enabled)...\n");
+    memset(read_data, 0, 512);
+    usb_msc_read_sector(10, read_data);
+
+    // Decrypted data should match plaintext
+    if (memcmp(orig_data, read_data, 512) != 0) {
+        serial_printf("[TEST] ERROR: Decrypted data does not match original plaintext!\n");
+        return;
+    }
+    serial_printf("[TEST] PASSED: Transparent read/write decryption works.\n");
+
+    // Now test integrity validation and tamper self-destruct trigger
+    serial_printf("[TEST] Simulating block tampering to test Self-Destruct...\n");
+    g_tamper_simulate = true;
+    
+    // This read should fail integrity check, trigger Tor distress beacon and 3-pass wipe!
+    usb_msc_read_sector(10, read_data);
 }
 
 /* ── Kernel entry ─────────────────────────────────────────────────────── */
@@ -459,9 +510,35 @@ void _start(void) {
     vfs_init();  /* mounts FAT32 if USB is ready; no-op otherwise */
 
     // -- M8: Pre-boot Authentication (FIDO2) --
+    if (!crypto_self_test()) {
+        serial_printf("Styx OS: Cryptographic self-test FAILED! Halting.\n");
+        for (;;) __asm__ volatile("hlt");
+    }
+
     if (!auth_preboot()) {
         serial_printf("[M8] Pre-boot authentication failed.\n");
         for (;;) __asm__ volatile("hlt");
+    }
+
+    // -- M9: Verify Encryption and Self-Destruct --
+    if (usb_ok) {
+        serial_printf("\n[M9] PRESS 't' KEY NOW TO RUN M9 CRYPTO & SELF-DESTRUCT VERIFICATION TESTS...\n");
+        char choice = 0;
+        for (volatile int delay = 0; delay < 100000000; delay++) {
+            if (inb(0x64) & 1) {
+                uint8_t sc = inb(0x60);
+                if (sc == 0x14) { // 'T' scancode
+                    choice = 't';
+                    break;
+                }
+            }
+        }
+        if (choice == 't') {
+            run_m9_verification_tests();
+        } else {
+            serial_printf("[M9] Continuing to standard boot.\n");
+            g_encryption_enabled = false;
+        }
     }
 
     uint64_t entry = 0;

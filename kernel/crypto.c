@@ -1,5 +1,8 @@
 #include "crypto.h"
 #include "string.h"
+#include "aes.h"
+#include "xts.h"
+#include "serial.h"
 
 /* ── SHA-512 Constants ───────────────────────────────────────────────────── */
 static const uint64_t k[80] = {
@@ -245,4 +248,76 @@ void hkdf_sha512_expand(const uint8_t *prk, const uint8_t *info, size_t info_len
         memcpy(okm + okm_offset, t, copy_bytes);
         okm_offset += copy_bytes;
     }
+}
+
+bool crypto_self_test(void) {
+    serial_printf("[CRYPTO-TEST] Running cryptographic self-tests...\n");
+
+    // 1. AES-256 Block Cipher Test Vector (FIPS 197)
+    uint8_t aes_key[32];
+    memset(aes_key, 0, 32);
+    uint8_t plaintext[16];
+    memset(plaintext, 0, 16);
+    uint8_t ciphertext[16];
+    
+    aes256_ctx_t aes_ctx;
+    aes256_init_encrypt(&aes_ctx, aes_key);
+    aes256_encrypt_block(&aes_ctx, plaintext, ciphertext);
+
+    uint8_t expected_cipher[16] = {
+        0xdc, 0x95, 0xc0, 0x78, 0xa2, 0x40, 0x89, 0x89,
+        0xad, 0x48, 0xa2, 0x14, 0x92, 0x84, 0x20, 0x87
+    };
+
+    if (memcmp(ciphertext, expected_cipher, 16) != 0) {
+        serial_printf("[CRYPTO-TEST] AES-256 encrypt FAILED!\n");
+        serial_printf("[CRYPTO-TEST] Expected: ");
+        for (int i = 0; i < 16; i++) serial_printf("%02x ", expected_cipher[i]);
+        serial_printf("\n[CRYPTO-TEST] Got:      ");
+        for (int i = 0; i < 16; i++) serial_printf("%02x ", ciphertext[i]);
+        serial_printf("\n");
+        return false;
+    }
+
+    uint8_t decrypted[16];
+    aes256_init_decrypt(&aes_ctx, aes_key);
+    aes256_decrypt_block(&aes_ctx, ciphertext, decrypted);
+
+    if (memcmp(decrypted, plaintext, 16) != 0) {
+        serial_printf("[CRYPTO-TEST] AES-256 decrypt FAILED!\n");
+        return false;
+    }
+    serial_printf("[CRYPTO-TEST] AES-256 Block Cipher: PASSED\n");
+
+    // 2. AES-256-XTS Mode Sector Round-trip Test
+    uint8_t xts_key[64];
+    memset(xts_key, 0x55, 64);
+    
+    aes256_xts_ctx_t xts_ctx;
+    aes256_xts_init(&xts_ctx, xts_key);
+
+    uint8_t sector_in[512];
+    uint8_t sector_enc[512];
+    uint8_t sector_dec[512];
+
+    for (int i = 0; i < 512; i++) {
+        sector_in[i] = (uint8_t)(i & 0xFF);
+    }
+
+    aes256_xts_encrypt_sector(&xts_ctx, 12345, sector_in, sector_enc);
+    aes256_xts_decrypt_sector(&xts_ctx, 12345, sector_enc, sector_dec);
+
+    if (memcmp(sector_in, sector_dec, 512) != 0) {
+        serial_printf("[CRYPTO-TEST] AES-256-XTS sector round-trip FAILED!\n");
+        return false;
+    }
+
+    if (memcmp(sector_in, sector_enc, 512) == 0) {
+        serial_printf("[CRYPTO-TEST] AES-256-XTS encrypt did not alter sector data!\n");
+        return false;
+    }
+    serial_printf("[CRYPTO-TEST] AES-256-XTS Mode: PASSED\n");
+
+    serial_printf("[CRYPTO-TEST] All cryptographic self-tests PASSED.\n");
+    return true;
 }

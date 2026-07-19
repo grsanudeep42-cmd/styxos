@@ -26,3 +26,19 @@ void vmm_unmap_page(uint64_t virt_addr);
  * Returns the pointer to the current active PML4 table (virtual address).
  */
 uint64_t *vmm_get_pml4(void);
+
+/**
+ * Sets the current active PML4 table pointer (virtual address).
+ */
+void vmm_set_pml4(uint64_t *pml4);
+
+/**
+ * Returns the HHDM offset (physical-to-virtual for direct-mapped region).
+ */
+uint64_t vmm_get_hhdm_offset(void);
+
+/**
+ * Translates a virtual address to a physical address using the active page table.
+ */
+uint64_t vmm_virt_to_phys(uint64_t virt);
+

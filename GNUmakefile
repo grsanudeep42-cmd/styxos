@@ -13,6 +13,7 @@
 # ── Toolchain ──────────────────────────────────────────────────────────────
 CC  := cc
 LD  := ld
+comma := ,
 
 # ── Kernel compile flags (per Milestone 1 spec) ────────────────────────────
 # Note: -fno-PIC + -mcmodel=kernel is the correct combo for a higher-half
@@ -49,8 +50,20 @@ LDFLAGS := \
 SRCS := kernel/main.c kernel/font.c kernel/fb.c kernel/string.c \
         kernel/idt.c kernel/isr.c kernel/irq.c kernel/pit.c \
         kernel/keyboard.c kernel/serial.c kernel/pmm.c kernel/vmm.c \
-        kernel/heap.c
-ASMS := kernel/isr.asm kernel/irq.asm
+        kernel/heap.c kernel/endpoint.c kernel/cap.c \
+        kernel/gdt.c \
+        kernel/tss.c \
+        kernel/task.c \
+        kernel/sched.c \
+        kernel/syscall.c \
+        kernel/elf.c \
+        kernel/pci.c \
+        kernel/xhci.c \
+        kernel/usb_msc.c \
+        kernel/fat32.c \
+        kernel/vfs.c
+
+ASMS := kernel/isr.asm kernel/irq.asm kernel/task.asm kernel/syscall.asm
 OBJS := $(SRCS:.c=.o) $(ASMS:.asm=.asm.o)
 KERNEL := kernel/kernel
 ISO    := styx.iso
@@ -58,7 +71,7 @@ ISO    := styx.iso
 
 
 # ── Phony targets ──────────────────────────────────────────────────────────
-.PHONY: all run clean distclean
+.PHONY: all run usb clean distclean
 
 all: $(ISO)
 
@@ -121,7 +134,7 @@ $(ISO): $(KERNEL) limine-binary/limine
 	rm -rf iso_root
 	@echo "[ISO] Done: $(ISO)"
 
-# ── Run in QEMU (BIOS) ─────────────────────────────────────────────────────
+# ── Run in QEMU (BIOS) with xHCI USB disk ─────────────────────────────────
 run: $(ISO)
 	qemu-system-x86_64        \
 	    -M q35                \
@@ -129,7 +142,13 @@ run: $(ISO)
 	    -cdrom $(ISO)         \
 	    -boot d               \
 	    -serial stdio         \
-	    -no-reboot
+	    -no-reboot            \
+	    -device qemu-xhci,id=xhci \
+	    $(if $(wildcard usb.img),-drive if=none$(comma)id=usbdisk$(comma)file=usb.img$(comma)format=raw -device usb-storage$(comma)drive=usbdisk$(comma)bus=xhci.0,)
+
+# ── Build FAT32 USB test image ─────────────────────────────────────────────
+usb:
+	bash make_usb_img.sh
 
 # ── Clean ──────────────────────────────────────────────────────────────────
 clean:

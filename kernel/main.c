@@ -12,6 +12,18 @@
 #include "pmm.h"
 #include "vmm.h"
 #include "heap.h"
+#include "cap.h"
+#include "gdt.h"
+#include "tss.h"
+#include "syscall.h"
+#include "task.h"
+#include "sched.h"
+#include "elf.h"
+#include "pci.h"
+#include "xhci.h"
+#include "usb_msc.h"
+#include "vfs.h"
+#include "user_init.bin.h"
 
 /* ── Limine protocol requests ─────────────────────────────────────────── */
 
@@ -103,7 +115,16 @@ void _start(void) {
                    "[WARN] No capability engine yet. Everything is trusted. This will not last.",
                    WHITE);
 
-    // 7. Initialize interrupt infrastructure in strict order
+    // 7. Install our GDT and TSS FIRST, before the IDT.
+    //    idt_set_gate() reads the current CS to store in each gate.
+    //    If we install the IDT before gdt_init(), the gates will have
+    //    Limine's CS=0x28 — which becomes the user code segment in our GDT,
+    //    causing triple-faults on the first exception after the switch.
+    serial_printf("Styx OS: Installing GDT and TSS...\n");
+    gdt_init();
+    tss_init();
+
+    // 8. Initialize interrupt infrastructure in strict order
     serial_printf("Styx OS: Setting up IDT...\n");
     idt_init(); // Installs all 32 exception gates (0-31) and 16 IRQ gates (32-47)
 
@@ -116,7 +137,7 @@ void _start(void) {
     serial_printf("Styx OS: Initializing PS/2 Keyboard driver...\n");
     keyboard_init();
 
-    // 8. Enable interrupts with sti()
+    // 9. Enable interrupts with sti()
     serial_printf("Styx OS: Enabling interrupts (sti)...\n");
     __asm__ volatile ("sti");
 
@@ -290,9 +311,210 @@ void _start(void) {
     serial_printf("--- HEAP SANITY TEST END ---\n\n");
     // ── END HEAP SANITY TEST ──────────────────────────────────────────────
 
-    serial_printf("Styx OS: Boot sequence complete. Entering idle loop.\n");
+    serial_printf("Styx OS: Boot sequence complete.\n");
 
-    // 12. Idle loop: CPU goes to low-power state and wakes up on interrupts
+    // ── M5 CAPABILITY ENGINE SANITY TESTS ────────────────────────────────
+    // All tests run in ring 0. No scheduler yet. Rendezvous is tested via
+    // a direct call chain: cap_send() parks the message, cap_recv() picks
+    // it up immediately after.
+    serial_printf("\n--- M5 CAPABILITY ENGINE SANITY TESTS BEGIN ---\n");
+
+    static cap_table_t table;  /* static: zero-initialized by BSS */
+    int m5_pass = 1;           /* overall pass/fail flag */
+    cap_err_t err;
+    cap_slot_t *slot;
+
+    // ── Test 1: Table initialization ─────────────────────────────────────
+    cap_table_init(&table);
+    int all_null = 1;
+    for (int i = 0; i < CAP_TABLE_SIZE; i++) {
+        if (table.slots[i].type != CAP_TYPE_NULL) { all_null = 0; break; }
+    }
+    serial_printf("  [T1] Table init — %d slots, all NULL: %s\n",
+                  CAP_TABLE_SIZE, all_null ? "PASS" : "FAIL");
+    if (!all_null) m5_pass = 0;
+
+    // ── Test 2: Endpoint create + lookup ─────────────────────────────────
+    err = cap_endpoint_create(&table, 0, CAP_RIGHT_ALL, 0);
+    if (err != CAP_OK) {
+        serial_printf("  [T2] Endpoint create at slot 0: FAIL (%s)\n",
+                      cap_err_str(err));
+        m5_pass = 0;
+    } else {
+        err = cap_lookup(&table, 0, CAP_TYPE_ENDPOINT, CAP_RIGHT_SEND, &slot);
+        serial_printf("  [T2] Endpoint created at slot 0, lookup: %s\n",
+                      err == CAP_OK ? "PASS" : "FAIL");
+        if (err != CAP_OK) m5_pass = 0;
+    }
+
+    // ── Test 3: IPC rendezvous (send then recv) ───────────────────────────
+    //
+    // Derive a RECV-only cap at slot 1 so sender (slot 0) and receiver
+    // (slot 1) are distinct, proving rights are enforced per-slot.
+    err = cap_derive(&table, 0, 1, CAP_RIGHT_RECV);
+    if (err != CAP_OK) {
+        serial_printf("  [T3] Derive RECV cap: FAIL (%s)\n", cap_err_str(err));
+        m5_pass = 0;
+    } else {
+        ipc_msg_t send_msg = {
+            .tag       = 0xDEADC0DEULL,
+            .words     = { 0x1234ULL, 0x5678ULL, 0xABCDULL, 0xEF01ULL },
+            .cap_count = 0,
+            ._pad      = 0,
+        };
+        ipc_msg_t recv_buf = { 0 };
+
+        /* cap_send parks the message (no receiver yet → SEND_WAITING) */
+        err = cap_send(&table, 0, &send_msg);
+        if (err != CAP_OK) {
+            serial_printf("  [T3] cap_send: FAIL (%s)\n", cap_err_str(err));
+            m5_pass = 0;
+        } else {
+            /* cap_recv sees SEND_WAITING → delivers immediately → IDLE */
+            err = cap_recv(&table, 1, &recv_buf);
+            int rendezvous_ok = (err == CAP_OK) &&
+                                (recv_buf.tag      == 0xDEADC0DEULL) &&
+                                (recv_buf.words[0] == 0x1234ULL);
+            serial_printf("  [T3] IPC rendezvous tag=%x word[0]=%x: %s\n",
+                          recv_buf.tag,
+                          recv_buf.words[0],
+                          rendezvous_ok ? "PASS" : "FAIL");
+            if (!rendezvous_ok) m5_pass = 0;
+        }
+    }
+
+    // ── Test 4: Rights escalation blocked ────────────────────────────────
+    // slot 1 has RECV only. Trying to derive RECV|SEND|GRANT from it
+    // must be rejected — child cannot hold rights parent doesn't have.
+    err = cap_derive(&table, 1, 2, CAP_RIGHT_RECV | CAP_RIGHT_SEND);
+    int escalation_blocked = (err == CAP_ERR_RIGHTS);
+    serial_printf("  [T4] Rights escalation blocked (%s): %s\n",
+                  cap_err_str(err), escalation_blocked ? "PASS" : "FAIL");
+    if (!escalation_blocked) m5_pass = 0;
+
+    // ── Test 5: Revocation — stale cap rejected ───────────────────────────
+    // cap_revoke_endpoint() bumps the endpoint's generation counter.
+    // slot 0's stored generation is now stale → next lookup returns STALE.
+    err = cap_revoke_endpoint(&table, 0);
+    if (err != CAP_OK) {
+        serial_printf("  [T5] cap_revoke_endpoint: FAIL (%s)\n",
+                      cap_err_str(err));
+        m5_pass = 0;
+    } else {
+        cap_slot_t *stale_slot;
+        err = cap_lookup(&table, 0, CAP_TYPE_ENDPOINT, CAP_RIGHT_SEND,
+                         &stale_slot);
+        int stale_ok = (err == CAP_ERR_STALE);
+        serial_printf("  [T5] Stale cap rejected after revocation (%s): %s\n",
+                      cap_err_str(err), stale_ok ? "PASS" : "FAIL");
+        if (!stale_ok) m5_pass = 0;
+    }
+
+    // ── Test 6: NULL slot lookup ──────────────────────────────────────────
+    // Slot 2 was never populated. Lookup must return CAP_ERR_NULL.
+    {
+        cap_slot_t *null_slot;
+        err = cap_lookup(&table, 2, CAP_TYPE_ENDPOINT, CAP_RIGHT_SEND,
+                         &null_slot);
+        int null_ok = (err == CAP_ERR_NULL);
+        serial_printf("  [T6] NULL slot lookup returns CAP_ERR_NULL (%s): %s\n",
+                      cap_err_str(err), null_ok ? "PASS" : "FAIL");
+        if (!null_ok) m5_pass = 0;
+    }
+
+    // ── Final verdict ─────────────────────────────────────────────────────
+    if (m5_pass) {
+        serial_printf("\n[CAP] ── M5 CAPABILITY ENGINE: ALL TESTS PASSED ──\n\n");
+    } else {
+        serial_printf("\n[CAP] ── M5 CAPABILITY ENGINE: ONE OR MORE TESTS FAILED ──\n\n");
+    }
+
+    serial_printf("--- M5 CAPABILITY ENGINE SANITY TESTS END ---\n\n");
+    // ── END M5 SANITY TESTS ───────────────────────────────────────────────
+
+    // -- M6: Ring-3 first process bootstrap --------------------------------
+    serial_printf("\n--- M6 RING-3 BOOTSTRAP BEGIN ---\n");
+
+    // 1. GDT and TSS are already installed and loaded at system startup.
+
+    // 3. Program STAR/LSTAR/SFMASK MSRs for SYSCALL fast-path
+    serial_printf("[M6] Initializing syscall gate...\n");
+    syscall_init();
+
+    // 4. Initialize task table
+    task_init_table();
+
+    // 5. Create kernel idle task (represents current execution context)
+    task_t *ktask = task_create_kernel();
+    if (!ktask) {
+        serial_printf("[M6] FATAL: kernel task creation failed\n");
+        for (;;) __asm__ volatile("hlt");
+    }
+
+    // 6. Create the ring-3 user task
+    //    Try to load from USB first; fall back to embedded blob.
+    serial_printf("\n--- M7 USB BOOT BEGIN ---\n");
+    bool usb_ok = xhci_init() && usb_msc_init();
+    vfs_init();  /* mounts FAT32 if USB is ready; no-op otherwise */
+
+    uint64_t entry = 0;
+    task_t *utask  = NULL;
+
+    if (usb_ok) {
+        // Probe task with dummy entry — real entry set after ELF parse
+        utask = task_create_user(0);
+        if (utask && elf_load_from_vfs(utask, "/init.elf", &entry) == 0) {
+            utask->regs.rip = entry;  /* patch entry point */
+            utask->regs.rbx = entry;  /* duplicate in RBX for trampoline safety */
+            serial_printf("[M7] Booted from USB: entry=%p\n", (void*)entry);
+        } else {
+            serial_printf("[M7] USB ELF load failed, falling back to embedded binary\n");
+            usb_ok = false;
+        }
+    }
+
+    if (!usb_ok) {
+        const elf64_header_t *ehdr = (const elf64_header_t *)user_user_elf;
+        entry = ehdr->e_entry;
+        utask = task_create_user(entry);
+        if (!utask) {
+            serial_printf("[M7] FATAL: user task creation failed\n");
+            for (;;) __asm__ volatile("hlt");
+        }
+        int elf_rc = elf_load(utask, user_user_elf, (size_t)user_user_elf_len);
+        if (elf_rc != 0) {
+            serial_printf("[M7] FATAL: embedded elf_load failed (rc=%d)\n", elf_rc);
+            for (;;) __asm__ volatile("hlt");
+        }
+        serial_printf("[M7] Using embedded binary: entry=%p\n", (void*)entry);
+    }
+    serial_printf("--- M7 USB BOOT END ---\n\n");
+
+    // 8. Give the user task a console capability in slot 0.
+    //    SYS_WRITE checks cap slot 0 for CAP_TYPE_ENDPOINT with CAP_RIGHT_SEND.
+    cap_err_t cerr = cap_endpoint_create(utask->cap_table, 0,
+                                          CAP_RIGHT_SEND | CAP_RIGHT_RECV, 0);
+    if (cerr != CAP_OK) {
+        serial_printf("[M6] WARNING: cap_endpoint_create failed: %s\n",
+                      cap_err_str(cerr));
+    } else {
+        serial_printf("[M6] Console capability installed in user task slot 0\n");
+    }
+
+    // 9. Initialize scheduler and add both tasks
+    sched_init();
+    sched_add(ktask);
+    sched_add(utask);
+
+    serial_printf("[M6] Scheduler ready -- handing off to ring 3\n");
+    serial_printf("--- M6 RING-3 BOOTSTRAP END ---\n\n");
+
+    // 10. sched_start() immediately switches to the user task.
+    //     Does not return until the scheduler gives the CPU back here.
+    sched_start();
+
+    // Kernel idle loop (reached after scheduler returns from initial switch)
+    serial_printf("Styx OS: Kernel idle loop active.\n");
     for (;;) {
         __asm__ volatile ("hlt");
     }

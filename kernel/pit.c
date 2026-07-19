@@ -2,16 +2,14 @@
 #include "io.h"
 #include "irq.h"
 #include "serial.h"
+#include "sched.h"
 
 static volatile uint64_t pit_ticks = 0;
 
 static void pit_callback(struct registers *regs) {
     (void)regs;
     pit_ticks++;
-    // Log tick counts to serial periodically for debugging (every 200 ticks = ~2 seconds)
-    if (pit_ticks % 200 == 0) {
-        serial_printf("PIT: %d ticks\n", pit_ticks);
-    }
+    sched_tick();   /* drive round-robin preemption every PIT tick */
 }
 
 void pit_init(uint32_t frequency) {

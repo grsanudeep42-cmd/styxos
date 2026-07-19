@@ -68,9 +68,9 @@ StyxOS is built as a series of independent security layers. Each layer has exact
 | **L7** | User Environment | Minimal shell + curated security toolset. Every binary verified against a cryptographic manifest at load time before execution. | 🟡 PLANNED |
 | **L6** | Network Anonymity | All traffic routed through Tor at kernel network stack level. Circuits rotate every 60–90s. Synthetic traffic injected to defeat timing correlation. No raw IP ever leaves the machine. | 🟡 PLANNED |
 | **L5** | Hardware Anonymization | MAC address randomized on every boot. USB controller IDs spoofed. CPU feature reporting sanitized. Monitor EDID randomized. Every hardware identifier that can be changed, is changed, on every boot. | 🟡 PLANNED |
-| **L4** | Process Isolation | Every process holds a cryptographic capability token. No token = no execution. Tokens define exactly which memory regions, devices, and syscalls a process may access. No ambient authority exists. | 🔵 NEXT — MILESTONE 5 |
+| **L4** | Process Isolation | Every process holds a cryptographic capability token. No token = no execution. Tokens define exactly which memory regions, devices, and syscalls a process may access. No ambient authority exists. | ✅ M5 COMPLETE |
 | **L3** | Memory Security | Nothing ever written to host disk. All execution in RAM. On shutdown or tamper detection, RAM actively overwritten with zeroes. Key material kept encrypted in RAM using envelope encryption: a session key (SK) decrypts data keys on demand and is itself stored encrypted under a hardware-bound root key. SK lives in plaintext in a single locked page for the minimum possible duration — decrypted for the operation, re-encrypted immediately after. Target platforms: Intel TME or AMD SME for hardware memory encryption. **Plus Ultra Enclave Integration:** On systems supporting Intel SGX or AMD SEV-SNP, the SK and cryptographic operations are isolated within a hardware-shielded enclave. The Ring 0 kernel only holds opaque handles, reducing the software-accessible key window to zero. | ✅ FOUNDATION COMPLETE |
-| **L2** | Microkernel | Custom x86-64. IDT, IRQ, PIT, PMM, VMM, and heap all implemented and passing sanity tests. Eventually all drivers run in ring 3. | ✅ DONE |
+| **L2** | Microkernel | Custom x86-64. IDT, IRQ, PIT, PMM, VMM, heap, capability engine, ELF loader, scheduler, syscall gate, and ring-3 task all implemented and passing sanity tests. All drivers run in ring 3. | ✅ M6 COMPLETE |
 | **L1** | Verified Boot Chain | Every boot stage measured and hash verified against TPM-anchored chain. Any tamper = system refuses to boot entirely. No fallback. No bypass. **Plus Ultra Anti-Evil-Maid Visual Verification:** Displays a user-memorable 3-word hash and a high-entropy color block derived from the TPM PCR state on the pre-boot auth screen, allowing instant manual verification before entering credentials. | 🔷 RESEARCH TRACK |
 | **L0** | USB Encryption | AES-256-XTS + Merkle integrity tree. Key derived via Argon2id + hardware salt + FIDO2 pre-boot authentication. Key material permanently destroyed on tamper or three wrong attempts. | 🟡 PLANNED |
 
@@ -185,7 +185,7 @@ A security system without a defined threat model is not a security system.
 | USB self-destruct on brute force | 🎯 PLANNED | ❌ NO | ❌ NO | ❌ NO | ⬜ M9 |
 | Traffic padding (anti-timing) | 🎯 PLANNED | ❌ NO | ❌ NO | ❌ NO | ⬜ M11 |
 | Tor at kernel level | 🎯 PLANNED | ⚠️ Userspace | ⚠️ Userspace | ❌ NO | ⬜ M11 |
-| Capability-based process model | 🎯 IN PROGRESS | ❌ NO | ⚠️ PARTIAL | ✅ YES | 🔵 M5 (CURRENT) |
+| Capability-based process model | ✅ DONE | ❌ NO | ⚠️ PARTIAL | ✅ YES | ✅ M5 COMPLETE |
 | Hardware fingerprint randomization | 🎯 PLANNED | ⚠️ PARTIAL | ⚠️ PARTIAL | ❌ NO | ⬜ M11 |
 | FIDO2 pre-boot MFA | 🎯 PLANNED | ❌ NO | ❌ NO | ❌ NO | ⬜ M8 |
 | Distress beacon on tamper | 🎯 PLANNED | ❌ NO | ❌ NO | ❌ NO | ⬜ M9 |
@@ -203,9 +203,9 @@ Each milestone must be stable and tested before the next begins. No skipping. No
 | **M2** | Interrupts, PIC, PIT, keyboard | GDT reload, IDT (32 exception + 16 IRQ gates), 8259 PIC remap, PIT @ 100Hz, PS/2 keyboard on IRQ1 | ✅ COMPLETE |
 | **M3** | Physical memory manager | Bitmap allocator, 126MB detected, frame alloc/free/reuse all passing | ✅ COMPLETE |
 | **M4** | Virtual memory + kernel heap | 4-level paging, own PML4, CR3 switch, HHDM+kernel+framebuffer+stack mapped, page fault test passing, kmalloc/kfree/kcalloc operational | ✅ COMPLETE |
-| **M5** | Capability-based IPC primitives | Capability table per task, synchronous send/receive as only IPC primitive, endpoint objects as kernel-managed resources, ring 0 testing | 🔵 **CURRENT TARGET** — est. 1–2 months |
-| **M6** | First userspace process (ring 3) | Syscall interface, ELF loader, basic scheduler, first task in ring 3 with capabilities enforced | ⬜ 2–3 months after M5 |
-| **M7** | Filesystem + USB storage driver | FAT32 read driver, basic VFS abstraction, xHCI USB host controller driver, execute binaries from USB | ⬜ 2–3 months after M6 |
+| **M5** | Capability-based IPC primitives | Capability table per task, synchronous send/receive, endpoint objects, rights derivation/escalation/revocation — all 6 sanity tests passing in ring 0 | ✅ COMPLETE |
+| **M6** | First userspace process (ring 3) | SYSCALL/SYSRET gate (STAR/LSTAR/SFMASK MSRs), ELF loader, task table, preemptive scheduler, GDT+TSS ring-3 segments, first ring-3 task running with SYS_WRITE + SYS_YIELD | ✅ COMPLETE |
+| **M7** | Filesystem + USB storage driver | FAT32 read driver, basic VFS abstraction, xHCI USB host controller driver, execute binaries from USB | 🔵 **CURRENT TARGET** — est. 2–3 months |
 | **M8** | Pre-boot authentication (FIDO2) | Custom pre-boot auth stub (runs before kernel load), FIDO2 CTAP2 over USB-HID, password + FIDO2 key derivation via HKDF-SHA-512, attempt counter in tamper-evident register | ⬜ 2 months after M7 |
 | **M9** | USB encryption + self-destruct | AES-256-XTS full volume, 3-pass key destruction on tamper, distress beacon (pre-established Tor circuit), FIDO2 MFA unlock integrated | ⬜ 3–4 months after M8 |
 | **M10** | Session snapshot system | AES-256-GCM chunk encryption, atomic write with sequence numbers + GHASH MACs, full RAM state serialization, restore on any compatible machine | ⬜ 2–3 months after M9 |
@@ -222,10 +222,10 @@ Each milestone must be stable and tested before the next begins. No skipping. No
 The StyxOS kernel is not a tutorial project or a toy. It is a functional 64-bit higher-half microkernel that has passed sanity tests for every subsystem implemented so far.
 
 ```
-SERIAL LOG — last successful boot
+SERIAL LOG — last successful boot (M6)
 
 [  UART  ]  COM1 initialized at boot — serial logging active
-[  GDT   ]  Global descriptor table reloaded
+[  GDT   ]  GDT + TSS installed — ring-0/ring-3 segments active
 [  IDT   ]  Descriptor table loaded — 32 exception + 16 IRQ gates
 [  PIC   ]  8259 remapped — spurious IRQs masked
 [  PIT   ]  Programmable interval timer — 100 Hz
@@ -233,15 +233,17 @@ SERIAL LOG — last successful boot
 [  PMM   ]  Physical memory — 126 MB detected, bitmap allocator ready
 [  PMM   ]  Frame alloc / free / reuse — PASS
 [  VMM   ]  New PML4 created — CR3 switched successfully
-[  VMM   ]  HHDM mapped, kernel mapped, framebuffer mapped, stack mapped
 [  HEAP  ]  kmalloc / kfree / kcalloc — initialized and operational
-[  VMM   ]  Intentional page fault at 0xFFFF900000000000 — CAUGHT correctly
-[  HALT  ]  Kernel halted cleanly — all systems nominal
+[  CAP   ]  M5 capability engine — all 6 sanity tests PASSED
+[  M6    ]  Syscall gate initialized (STAR/LSTAR/SFMASK MSRs)
+[  M6    ]  ELF user binary loaded into private ring-3 address space
+[  M6    ]  Console capability installed in user task slot 0
+[  M6    ]  Scheduler ready — handing off to ring 3
+[  RING3 ]  Hello from ring 3! (SYS_WRITE confirmed working)
+[  SCHED ]  SYS_YIELD preemption loop active — kernel idle
 ```
 
-The project README has been updated to reflect the actual completed state of the project: IDT, IRQ handling, PMM, VMM, and the kernel heap are all implemented, integrated, and passing sanity tests.
-
-The current frontier is **Milestone 5: capability-based IPC primitives.** This is where the security model of StyxOS begins in earnest. Everything built from here forward is either a direct security feature or a prerequisite for one.
+The current frontier is **Milestone 7: filesystem + USB storage driver.** With ring-3 processes running and capabilities enforced, the next step is reading real binaries off USB instead of embedding them in the kernel image.
 
 ---
 
@@ -249,21 +251,36 @@ The current frontier is **Milestone 5: capability-based IPC primitives.** This i
 
 ```
 kernel/
-├── main.c        — _start(), Limine requests, full boot sequence
-├── fb.c/h        — Framebuffer: init, clear, put_pixel, draw_string
-├── font.c/h      — Embedded 8×8 bitmap font, draw_char
-├── string.c/h    — Freestanding memcpy/memset/memmove/memcmp
-├── serial.c/h    — COM1 UART debug logging (serial_printf)
-├── idt.c/h       — Interrupt Descriptor Table (32 exception + 16 IRQ gates)
-├── isr.c/h       — Exception handlers (CPU faults, page faults)
-├── isr.asm       — ISR stubs in assembly
-├── irq.c/h       — 8259 PIC remap, hardware interrupt dispatch
-├── irq.asm       — IRQ stubs in assembly
-├── pit.c/h       — Programmable Interval Timer @ 100Hz
-├── keyboard.c/h  — PS/2 keyboard driver on IRQ1
-├── pmm.c/h       — Physical Memory Manager (bitmap allocator)
-├── vmm.c/h       — Virtual Memory Manager (4-level paging, own page tables)
-└── heap.c/h      — Kernel heap allocator (kmalloc/kfree/kcalloc)
+├── main.c          — _start(), full boot sequence, M5+M6 bootstrap
+├── fb.c/h          — Framebuffer: init, clear, put_pixel, draw_string
+├── font.c/h        — Embedded 8×8 bitmap font, draw_char
+├── string.c/h      — Freestanding memcpy/memset/memmove/memcmp
+├── serial.c/h      — COM1 UART debug logging (serial_printf)
+├── gdt.c/h         — GDT with ring-0 + ring-3 code/data segments
+├── tss.c/h         — TSS (kernel RSP0 for syscall stack pivot)
+├── idt.c/h         — Interrupt Descriptor Table (32 exception + 16 IRQ gates)
+├── isr.c/h         — Exception handlers (CPU faults, page faults)
+├── isr.asm         — ISR stubs in assembly
+├── irq.c/h         — 8259 PIC remap, hardware interrupt dispatch
+├── irq.asm         — IRQ stubs in assembly
+├── pit.c/h         — Programmable Interval Timer @ 100Hz
+├── keyboard.c/h    — PS/2 keyboard driver on IRQ1
+├── pmm.c/h         — Physical Memory Manager (bitmap allocator)
+├── vmm.c/h         — Virtual Memory Manager (4-level paging, own page tables)
+├── heap.c/h        — Kernel heap allocator (kmalloc/kfree/kcalloc)
+├── cap.c/h         — Capability engine (table, create, derive, revoke, send/recv)
+├── endpoint.c/h    — Endpoint objects (kernel-managed IPC rendezvous)
+├── ipc.h           — IPC message type (tag, words, cap_count)
+├── syscall.c/h     — Syscall handler (SYS_WRITE, SYS_YIELD)
+├── syscall.asm     — SYSCALL entry stub (STAR/LSTAR/SFMASK setup)
+├── task.c/h        — Task control block, ring-3 address space setup
+├── task.asm        — Context switch assembly (save/restore GPRs)
+├── sched.c/h       — Preemptive round-robin scheduler
+├── elf.c/h         — ELF64 loader (maps PT_LOAD segments into user PML4)
+└── user_init.bin.h — Embedded user ELF binary (linked into kernel image)
+
+user/
+└── user.c          — First ring-3 task: SYS_WRITE + SYS_YIELD loop
 ```
 
 ---

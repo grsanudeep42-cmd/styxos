@@ -74,6 +74,10 @@ void vmm_map_page(uint64_t virt_addr, uint64_t phys_addr, uint64_t flags) {
     uint64_t pd_i = PD_INDEX(virt_addr);
     uint64_t pt_i = PT_INDEX(virt_addr);
 
+    // Intermediate structures need PTE_USER if the target page has it,
+    // otherwise the processor restricts user-mode access at higher levels.
+    uint64_t parent_flags = PTE_PRESENT | PTE_WRITABLE | (flags & PTE_USER);
+
     // 1. PML4 -> PDPT
     if (!(current_pml4[pml4_i] & PTE_PRESENT)) {
         void *pdpt_phys = pmm_alloc_frame();
@@ -83,7 +87,9 @@ void vmm_map_page(uint64_t virt_addr, uint64_t phys_addr, uint64_t flags) {
         }
         uint64_t *pdpt_virt = (uint64_t *)((uintptr_t)pdpt_phys + hhdm_off);
         memset(pdpt_virt, 0, PAGE_SIZE);
-        current_pml4[pml4_i] = (uint64_t)pdpt_phys | PTE_PRESENT | PTE_WRITABLE;
+        current_pml4[pml4_i] = (uint64_t)pdpt_phys | parent_flags;
+    } else {
+        current_pml4[pml4_i] |= (flags & PTE_USER);
     }
     uint64_t *pdpt = (uint64_t *)((current_pml4[pml4_i] & PTE_ADDR_MASK) + hhdm_off);
 
@@ -96,7 +102,9 @@ void vmm_map_page(uint64_t virt_addr, uint64_t phys_addr, uint64_t flags) {
         }
         uint64_t *pd_virt = (uint64_t *)((uintptr_t)pd_phys + hhdm_off);
         memset(pd_virt, 0, PAGE_SIZE);
-        pdpt[pdpt_i] = (uint64_t)pd_phys | PTE_PRESENT | PTE_WRITABLE;
+        pdpt[pdpt_i] = (uint64_t)pd_phys | parent_flags;
+    } else {
+        pdpt[pdpt_i] |= (flags & PTE_USER);
     }
     uint64_t *pd = (uint64_t *)((pdpt[pdpt_i] & PTE_ADDR_MASK) + hhdm_off);
 
@@ -109,7 +117,9 @@ void vmm_map_page(uint64_t virt_addr, uint64_t phys_addr, uint64_t flags) {
         }
         uint64_t *pt_virt = (uint64_t *)((uintptr_t)pt_phys + hhdm_off);
         memset(pt_virt, 0, PAGE_SIZE);
-        pd[pd_i] = (uint64_t)pt_phys | PTE_PRESENT | PTE_WRITABLE;
+        pd[pd_i] = (uint64_t)pt_phys | parent_flags;
+    } else {
+        pd[pd_i] |= (flags & PTE_USER);
     }
     uint64_t *pt = (uint64_t *)((pd[pd_i] & PTE_ADDR_MASK) + hhdm_off);
 
@@ -141,6 +151,14 @@ void vmm_unmap_page(uint64_t virt_addr) {
 
 uint64_t *vmm_get_pml4(void) {
     return current_pml4;
+}
+
+void vmm_set_pml4(uint64_t *pml4) {
+    current_pml4 = pml4;
+}
+
+uint64_t vmm_get_hhdm_offset(void) {
+    return hhdm_off;
 }
 
 void vmm_init(uint64_t hhdm_offset) {
@@ -276,4 +294,35 @@ void vmm_init(uint64_t hhdm_offset) {
     __asm__ volatile("mov %0, %%cr3" : : "r"(new_cr3) : "memory");
     
     serial_printf("VMM: [CR3 Write] Switched to new PML4 successfully!\n");
+}
+
+uint64_t vmm_virt_to_phys(uint64_t virt) {
+    if (virt >= hhdm_off && virt < hhdm_off + 0x1000000000ULL) {
+        return virt - hhdm_off;
+    }
+    if (!current_pml4) return 0;
+    uint64_t pml4_i = PML4_INDEX(virt);
+    if (!(current_pml4[pml4_i] & PTE_PRESENT)) return 0;
+    
+    uint64_t *pdpt = (uint64_t *)((current_pml4[pml4_i] & PTE_ADDR_MASK) + hhdm_off);
+    uint64_t pdpt_i = PDPT_INDEX(virt);
+    if (!(pdpt[pdpt_i] & PTE_PRESENT)) return 0;
+    
+    if (pdpt[pdpt_i] & (1ULL << 7)) {
+        return (pdpt[pdpt_i] & PTE_ADDR_MASK) + (virt & 0x3FFFFFFF);
+    }
+    
+    uint64_t *pd = (uint64_t *)((pdpt[pdpt_i] & PTE_ADDR_MASK) + hhdm_off);
+    uint64_t pd_i = PD_INDEX(virt);
+    if (!(pd[pd_i] & PTE_PRESENT)) return 0;
+    
+    if (pd[pd_i] & (1ULL << 7)) {
+        return (pd[pd_i] & PTE_ADDR_MASK) + (virt & 0x1FFFFF);
+    }
+    
+    uint64_t *pt = (uint64_t *)((pd[pd_i] & PTE_ADDR_MASK) + hhdm_off);
+    uint64_t pt_i = PT_INDEX(virt);
+    if (!(pt[pt_i] & PTE_PRESENT)) return 0;
+    
+    return (pt[pt_i] & PTE_ADDR_MASK) + (virt & 0xFFF);
 }

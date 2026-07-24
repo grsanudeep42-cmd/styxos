@@ -78,7 +78,9 @@ SRCS := kernel/main.c kernel/font.c kernel/fb.c kernel/string.c \
         kernel/padding.c \
         kernel/tor.c \
         kernel/manifest.c \
-        kernel/shell.c
+        kernel/shell.c \
+        kernel/tpm.c \
+        kernel/tpm_visual.c
 
 ASMS := kernel/isr.asm kernel/irq.asm kernel/task.asm kernel/syscall.asm
 OBJS := $(SRCS:.c=.o) $(ASMS:.asm=.asm.o)

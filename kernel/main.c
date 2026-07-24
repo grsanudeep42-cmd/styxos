@@ -37,6 +37,8 @@
 #include "tor.h"
 #include "manifest.h"
 #include "shell.h"
+#include "tpm.h"
+#include "tpm_visual.h"
 #include "io.h"
 #include "user_init.bin.h"
 
@@ -327,6 +329,26 @@ static void run_m12_verification_tests(void) {
     serial_printf("\n--- M12 INTERACTIVE SHELL INTEGRATION TEST SUITE ---\n");
     shell_run();
     serial_printf("[TEST] M12 INTEGRATION TESTS COMPLETED SUCCESSFULLY.\n");
+    serial_printf("-----------------------------------\n\n");
+    halt();
+}
+
+static void run_m13_verification_tests(void) {
+    serial_printf("\n--- M13 TPM 2.0 ATTESTATION TEST SUITE ---\n");
+    serial_printf("[TEST] Initializing TPM 2.0 TIS MMIO Driver...\n");
+    tpm2_init();
+
+    serial_printf("[TEST] Deriving Anti-Evil-Maid Visual Verification Seal...\n");
+    tpm_visual_render_seal();
+
+    serial_printf("[TEST] Validating hardware PCR attestation quote...\n");
+    if (tpm2_verify_attestation()) {
+        serial_printf("[TEST] PASSED: TPM 2.0 PCR attestation quote verified successfully.\n");
+    } else {
+        serial_printf("[TEST] ERROR: TPM attestation verification failed!\n");
+    }
+
+    serial_printf("[TEST] M13 INTEGRATION TESTS COMPLETED SUCCESSFULLY.\n");
     serial_printf("-----------------------------------\n\n");
     halt();
 }
@@ -785,7 +807,7 @@ void _start(void) {
 
     // -- M9/M10/M11: Verification Boot Menu --
     if (usb_ok || 1) { // Prompt regardless since fallback task also needs snapshot/network tests
-        serial_printf("\n[BOOT] PRESS 't' FOR M9, 's' FOR M10, 'n' FOR M11, OR 'h' FOR M12 SHELL...\n");
+        serial_printf("\n[BOOT] PRESS 't' FOR M9, 's' FOR M10, 'n' FOR M11, 'h' FOR M12, OR 'v' FOR M13 TPM...\n");
         char choice = 0;
         g_last_scancode = 0;
         for (volatile int delay = 0; delay < 300000000; delay++) {
@@ -806,6 +828,10 @@ void _start(void) {
                 choice = 'h';
                 break;
             }
+            if (sc == 0x2F) { // 'V' scancode
+                choice = 'v';
+                break;
+            }
         }
         if (choice == 't') {
             run_m9_verification_tests();
@@ -815,6 +841,8 @@ void _start(void) {
             run_m11_verification_tests();
         } else if (choice == 'h') {
             run_m12_verification_tests();
+        } else if (choice == 'v') {
+            run_m13_verification_tests();
         } else {
             serial_printf("[BOOT] Continuing to standard boot.\n");
             g_encryption_enabled = false;

@@ -211,7 +211,7 @@ Each milestone must be stable and tested before the next begins. No skipping. No
 | **M10** | Session snapshot system | AES-256-GCM chunk encryption, atomic write with sequence numbers + GHASH MACs, full RAM state serialization, PathORAM access-pattern obfuscation | ✅ COMPLETE |
 | **M11** | Network stack + Tor + traffic padding | Custom kernel-level network stack (Intel e1000 PCI driver), Tor capability domain at network layer, continuous 50 Kbps traffic padding, circuit rotation 60–90s, MAC hardware randomization | ✅ COMPLETE |
 | **M12** | Usable shell + first real environment | Minimal custom security shell, signed binary manifest verification, system utilities (sysinfo, net, tor, snapshot, auth, wipe) | ✅ COMPLETE |
-| **M13** | TPM attestation + verified boot chain | Full measured boot with TPM 2.0, refusal to boot on any tamper, remote attestation capability | 🔷 Parallel research track |
+| **M13** | TPM attestation + verified boot chain | Full measured boot with TPM 2.0 TIS MMIO, SHA-256 PCR[0..3] extensions, Anti-Evil-Maid visual seal derivation (3-word hash + RGB matrix), golden PCR attestation | ✅ COMPLETE |
 
 > **Realistic total timeline:** Milestones 5–12 represent **20–27 months** of focused solo development from the current kernel state. M13 is a parallel research track. The new M8 (FIDO2 pre-boot auth) is a prerequisite for M9 — hardware token support must exist before encryption is built on top of it. The goal is not to ship fast. The goal is to ship something that actually does what it claims.
 

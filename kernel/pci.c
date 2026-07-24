@@ -107,6 +107,48 @@ bool pci_find_xhci(pci_device_t *out) {
     return false;
 }
 
+bool pci_find_e1000(pci_device_t *out) {
+    for (uint16_t bus = 0; bus < 256; bus++) {
+        for (uint8_t dev = 0; dev < 32; dev++) {
+            for (uint8_t fn = 0; fn < 8; fn++) {
+                uint32_t vid_did = pci_read32((uint8_t)bus, dev, fn, PCI_VENDOR_ID);
+                uint16_t vid = vid_did & 0xFFFF;
+                uint16_t did = (vid_did >> 16) & 0xFFFF;
+                if (vid == 0xFFFF) continue; /* no device */
+
+                // Intel 82540EM (0x8086:0x100E) or e1000 family (0x1004, 0x100F, 0x1015)
+                if (vid == 0x8086 && (did == 0x100E || did == 0x100F || did == 0x1004 || did == 0x1015)) {
+                    uint32_t bar0_lo = pci_read32((uint8_t)bus, dev, fn, PCI_BAR0);
+                    uint64_t base;
+                    uint32_t sz;
+
+                    if ((bar0_lo & 0x6) == 0x4) {
+                        decode_bar64((uint8_t)bus, dev, fn, PCI_BAR0, &base, &sz);
+                    } else {
+                        base = bar0_lo & ~0xFU;
+                        pci_write32((uint8_t)bus, dev, fn, PCI_BAR0, 0xFFFFFFFF);
+                        uint32_t sz_lo = pci_read32((uint8_t)bus, dev, fn, PCI_BAR0) & ~0xFU;
+                        pci_write32((uint8_t)bus, dev, fn, PCI_BAR0, bar0_lo);
+                        sz = ~sz_lo + 1;
+                    }
+
+                    out->bus       = (uint8_t)bus;
+                    out->dev       = dev;
+                    out->fn        = fn;
+                    out->bar0      = base;
+                    out->bar0_size = sz;
+
+                    serial_printf("[PCI] Intel e1000 found: bus=%d dev=%d fn=%d BAR0=0x%x size=%d B\n",
+                                  bus, dev, fn, (uint32_t)base, sz);
+                    return true;
+                }
+            }
+        }
+    }
+    serial_printf("[PCI] No Intel e1000 network controller found.\n");
+    return false;
+}
+
 /* ── Enable Bus Master + Memory Space ────────────────────────────────────── */
 
 void pci_enable_device(const pci_device_t *d) {

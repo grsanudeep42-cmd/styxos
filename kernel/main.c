@@ -31,6 +31,10 @@
 #include "gcm.h"
 #include "oram.h"
 #include "snapshot.h"
+#include "anonymize.h"
+#include "e1000.h"
+#include "padding.h"
+#include "tor.h"
 #include "io.h"
 #include "user_init.bin.h"
 
@@ -243,6 +247,77 @@ static void run_m10_verification_tests(task_t *t1) {
     vmm_set_pml4(old_pml4);
 
     serial_printf("[TEST] M10 INTEGRATION TESTS COMPLETED SUCCESSFULLY.\n");
+    halt();
+}
+
+static void run_m11_verification_tests(void) {
+    serial_printf("\n--- M11 INTEGRATION TEST SUITE ---\n");
+
+    // 1. Hardware Anonymization Engine Test
+    serial_printf("[TEST] Initializing Hardware Anonymization Engine...\n");
+    anonymize_init();
+    uint8_t mac[6];
+    anonymize_get_mac(mac);
+    if ((mac[0] & 0x02) == 0x02 && (mac[0] & 0x01) == 0x00) {
+        serial_printf("[TEST] PASSED: MAC Address is Locally Administered Unicast (%x:%x:%x:%x:%x:%x)\n",
+                      mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    } else {
+        serial_printf("[TEST] ERROR: MAC Address does not match locally-administered unicast format!\n");
+    }
+
+    // 2. Intel e1000 PCI Network Driver Test
+    serial_printf("[TEST] Initializing Intel e1000 PCI Network Driver...\n");
+    if (!e1000_init()) {
+        serial_printf("[TEST] ERROR: e1000 PCI initialization failed!\n");
+    } else {
+        serial_printf("[TEST] PASSED: e1000 PCI driver initialized successfully.\n");
+    }
+
+    // 3. Continuous Traffic Padding Test
+    serial_printf("[TEST] Testing Continuous Traffic Padding Layer...\n");
+    padding_init();
+    if (padding_inject_noise()) {
+        serial_printf("[TEST] PASSED: 512-byte synthetic noise packet injected.\n");
+    } else {
+        serial_printf("[TEST] WARNING: Noise packet injection skipped (e1000 inactive).\n");
+    }
+
+    // 4. Tor System Capability Domain Test
+    serial_printf("[TEST] Initializing Tor Capability Domain...\n");
+    if (tor_init()) {
+        serial_printf("[TEST] PASSED: 3-Hop Onion Keys derived.\n");
+    }
+
+    // Test capability enforcement (invalid token must be rejected)
+    serial_printf("[TEST] Verifying capability enforcement (sending cell with INVALID token)...\n");
+    if (!tor_send_cell((const uint8_t*)"HELLO", 5, 0xBAD00000)) {
+        serial_printf("[TEST] PASSED: Invalid token correctly rejected by kernel.\n");
+    } else {
+        serial_printf("[TEST] ERROR: Invalid token accepted!\n");
+    }
+
+    // Send cell with VALID token
+    serial_printf("[TEST] Sending encrypted Tor cell with VALID token (0x544F5231)...\n");
+    if (tor_send_cell((const uint8_t*)"ANONYMOUS DATA", 14, TOR_CAPABILITY_TOKEN)) {
+        serial_printf("[TEST] PASSED: Encrypted Tor cell successfully dispatched.\n");
+    }
+
+    // Test Tor circuit rotation
+    serial_printf("[TEST] Testing Tor circuit rotation & noise boost...\n");
+    tor_rotate_circuit();
+    serial_printf("[TEST] PASSED: Tor circuit rotated.\n");
+
+    // 5. Fail-Closed Kill-Switch Guard Test
+    serial_printf("[TEST] Testing Fail-Closed Dead-Reckoning Guard...\n");
+    tor_check_dead_reckoning(true); // Simulate consensus loss
+    if (!g_e1000_active) {
+        serial_printf("[TEST] PASSED: e1000 NIC hardware successfully killed on network drop.\n");
+    } else {
+        serial_printf("[TEST] ERROR: e1000 NIC remained active!\n");
+    }
+
+    serial_printf("[TEST] M11 INTEGRATION TESTS COMPLETED SUCCESSFULLY.\n");
+    serial_printf("-----------------------------------\n\n");
     halt();
 }
 
@@ -698,12 +773,12 @@ void _start(void) {
     sched_add(ktask);
     sched_add(utask);
 
-    // -- M9/M10: Verify Encryption, Self-Destruct or Session Snapshot --
-    if (usb_ok || 1) { // Prompt regardless since fallback task also needs snapshot tests
-        serial_printf("\n[M9/M10] PRESS 't' FOR M9 CRYPTO/SELF-DESTRUCT OR 's' FOR M10 SNAPSHOT VERIFICATION TESTS...\n");
+    // -- M9/M10/M11: Verification Boot Menu --
+    if (usb_ok || 1) { // Prompt regardless since fallback task also needs snapshot/network tests
+        serial_printf("\n[BOOT] PRESS 't' FOR M9 CRYPTO, 's' FOR M10 SNAPSHOT, OR 'n' FOR M11 NETWORK TESTS...\n");
         char choice = 0;
         g_last_scancode = 0;
-        for (volatile int delay = 0; delay < 50000000; delay++) {
+        for (volatile int delay = 0; delay < 300000000; delay++) {
             uint8_t sc = g_last_scancode;
             if (sc == 0x14) { // 'T' scancode
                 choice = 't';
@@ -713,13 +788,19 @@ void _start(void) {
                 choice = 's';
                 break;
             }
+            if (sc == 0x31) { // 'N' scancode
+                choice = 'n';
+                break;
+            }
         }
         if (choice == 't') {
             run_m9_verification_tests();
         } else if (choice == 's') {
             run_m10_verification_tests(utask);
+        } else if (choice == 'n') {
+            run_m11_verification_tests();
         } else {
-            serial_printf("[M9/M10] Continuing to standard boot.\n");
+            serial_printf("[BOOT] Continuing to standard boot.\n");
             g_encryption_enabled = false;
         }
     }

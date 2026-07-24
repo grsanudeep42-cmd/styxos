@@ -64,6 +64,12 @@ void     pci_write16(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t reg, uint16_t
 bool pci_find_xhci(pci_device_t *out);
 
 /*
+ * pci_find_e1000() — scan all buses for an Intel e1000 network controller.
+ * Returns true and fills *out on success. Returns false if not found.
+ */
+bool pci_find_e1000(pci_device_t *out);
+
+/*
  * pci_enable_device() — set Bus Master + Memory Space bits in command register.
  * Required before MMIO BAR access works.
  */

@@ -59,6 +59,17 @@ static char get_char_poll(bool *is_f2, bool *is_space) {
     if (is_f2) *is_f2 = false;
     if (is_space) *is_space = false;
 
+    /* Check UART serial (COM1) data ready */
+    if (inb(0x3F8 + 5) & 0x01) {
+        char c = inb(0x3F8);
+        if (c == '\r') c = '\n';
+        if (c == ' ' || c == '\n') {
+            if (is_space) *is_space = true;
+        }
+
+        return c;
+    }
+
     uint8_t status = inb(0x64);
     if (status & 0x01) { // Output buffer full
         uint8_t scancode = inb(0x60);
@@ -94,6 +105,7 @@ static char get_char_poll(bool *is_f2, bool *is_space) {
     }
     return 0;
 }
+
 
 /* ── UI Drawing Helpers ──────────────────────────────────────────────────── */
 static void draw_box(int x, int y, int w, int h, uint32_t bg_color, uint32_t border_color) {
@@ -273,17 +285,18 @@ bool auth_preboot(void) {
         } else {
             fb_draw_string(bx + 120, by + 160, "Not found. Press F2 for Emulator Mode", 0x00F87171);
             
-            // Wait for F2 or keyboard touch
+            // Wait for F2 or keyboard/serial touch
             for (;;) {
                 bool is_f2 = false;
                 bool is_space = false;
-                get_char_poll(&is_f2, &is_space);
-                if (is_f2) {
+                char c = get_char_poll(&is_f2, &is_space);
+                if (is_f2 || is_space || c == '2' || c == '\n' || c == ' ') {
                     f2_triggered = true;
                     break;
                 }
                 for (volatile int d = 0; d < 1000; d++);
             }
+
 
             if (f2_triggered) {
                 // Clear the row

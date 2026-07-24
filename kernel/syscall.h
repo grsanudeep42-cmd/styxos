@@ -29,11 +29,16 @@
 /* ── Syscall numbers ────────────────────────────────────────────────────── */
 
 #define SYS_YIELD      0   /* give up CPU slice                            */
-#define SYS_WRITE      1   /* write bytes to serial (debug; M7 adds real I/O) */
+#define SYS_WRITE      1   /* write bytes to serial / console              */
 #define SYS_CAP_SEND   2   /* IPC send via capability slot                 */
 #define SYS_CAP_RECV   3   /* IPC recv via capability slot                 */
+#define SYS_EXIT       4   /* terminate calling ring-3 process             */
+#define SYS_READ_KEY   5   /* non-blocking keyboard input read             */
+#define SYS_TOR_CELL   6   /* encrypt & transmit Tor cell                  */
+#define SYS_SYSINFO    7   /* retrieve kernel memory & task stats          */
 
-#define SYS_MAX        4   /* total number of syscalls in M6 table         */
+#define SYS_MAX        8   /* total number of syscalls in StyxOS table     */
+
 
 /* ── Return codes ───────────────────────────────────────────────────────── */
 

@@ -95,6 +95,17 @@ OBJS := $(SRCS:.c=.o) $(ASMS:.asm=.asm.o)
 KERNEL := kernel/kernel
 ISO    := styx.iso
 
+# ── Userland Compile Flags ──────────────────────────────────────────────────
+USER_CFLAGS := -std=gnu11 -ffreestanding -fno-stack-protector -fno-PIC -m64 -march=x86-64 -mcmodel=small -mno-red-zone -Wall -Wextra -Iuser/libstyx
+USER_LDFLAGS := -m elf_x86_64 -nostdlib -T user/user.ld
+
+USER_LIB_SRCS := user/libstyx/styx.c
+USER_LIB_OBJS := user/libstyx/styx.o user/libstyx/syscalls.o user/libstyx/crt0.o
+USER_LIB := user/libstyx/libstyx.a
+
+USER_ELFS := user/bin/init.elf user/bin/shell.elf user/bin/tor_daemon.elf
+
+
 
 
 # ── Phony targets ──────────────────────────────────────────────────────────
@@ -130,10 +141,45 @@ limine-binary/limine:
 	@echo "[AS] $<"
 	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
 
+user/libstyx/crt0.o: user/libstyx/crt0.S
+	@echo "[AS-USER] $<"
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+user/libstyx/syscalls.o: user/libstyx/syscalls.S
+	@echo "[AS-USER] $<"
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+user/libstyx/styx.o: user/libstyx/styx.c
+	@echo "[CC-USER] $<"
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+
+$(USER_LIB): $(USER_LIB_OBJS)
+	@echo "[AR-USER] $(USER_LIB)"
+	ar rcs $@ $(USER_LIB_OBJS)
+
+user/bin/%.o: user/bin/%.c
+	@echo "[CC-USER] $<"
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+user/bin/%.elf: user/bin/%.o $(USER_LIB)
+	@echo "[LD-USER] $@"
+	$(LD) $(USER_LDFLAGS) $(USER_LIB_OBJS) $< -o $@
+
+kernel/user_init.bin.h: user/bin/init.elf
+	@echo "[EMBED] $< -> $@"
+	python3 -c 'with open("$<","rb") as f: d=f.read(); \
+	open("$@","w").write("unsigned char user_user_elf[] = {\n" + \
+	",\n".join("  " + ", ".join(f"0x{b:02x}" for b in d[i:i+12]) for i in range(0,len(d),12)) + \
+	"\n};\nunsigned int user_user_elf_len = " + str(len(d)) + ";\n")'
+
 # ── Link the kernel ELF ───────────────────────────────────────────────────
-$(KERNEL): $(OBJS)
+$(KERNEL): $(OBJS) $(USER_ELFS) kernel/user_init.bin.h
 	@echo "[LD] $(KERNEL)"
 	$(LD) $(LDFLAGS) $(OBJS) -o $(KERNEL)
+
+
+
 
 # ── Build the bootable ISO ─────────────────────────────────────────────────
 $(ISO): $(KERNEL) limine-binary/limine
@@ -180,7 +226,9 @@ usb:
 # ── Clean ──────────────────────────────────────────────────────────────────
 clean:
 	rm -f $(OBJS) $(KERNEL) $(ISO)
+	rm -f user/libstyx/*.o user/libstyx/*.a user/bin/*.o user/bin/*.elf
 	rm -rf iso_root
+
 
 distclean: clean
 	rm -f limine.h

@@ -800,16 +800,16 @@ void _start(void) {
     }
     serial_printf("--- M7 USB BOOT END ---\n\n");
 
-    // 8. Give the user task a console capability in slot 0.
-    //    SYS_WRITE checks cap slot 0 for CAP_TYPE_ENDPOINT with CAP_RIGHT_SEND.
-    cap_err_t cerr = cap_endpoint_create(utask->cap_table, 0,
-                                          CAP_RIGHT_SEND | CAP_RIGHT_RECV, 0);
-    if (cerr != CAP_OK) {
-        serial_printf("[M6] WARNING: cap_endpoint_create failed: %s\n",
-                      cap_err_str(cerr));
+    // 8. Give the user task console capability in slot 0 and network capability in slot 1.
+    cap_err_t cerr0 = cap_endpoint_create(utask->cap_table, 0, CAP_RIGHT_SEND | CAP_RIGHT_RECV, 0);
+    cap_err_t cerr1 = cap_endpoint_create(utask->cap_table, 1, CAP_RIGHT_SEND | CAP_RIGHT_RECV, 1);
+    if (cerr0 != CAP_OK || cerr1 != CAP_OK) {
+        serial_printf("[M6] WARNING: cap_endpoint_create failed: slot0=%s, slot1=%s\n",
+                      cap_err_str(cerr0), cap_err_str(cerr1));
     } else {
-        serial_printf("[M6] Console capability installed in user task slot 0\n");
+        serial_printf("[M6] Capabilities installed: Console (slot 0), Network (slot 1)\n");
     }
+
 
     // 9. Initialize scheduler and add both tasks
     sched_init();
@@ -821,7 +821,8 @@ void _start(void) {
         serial_printf("\n[BOOT] PRESS 't' FOR M9, 's' FOR M10, 'n' FOR M11, 'h' FOR M12, OR 'v' FOR M13 TPM...\n");
         char choice = 0;
         g_last_scancode = 0;
-        for (volatile int delay = 0; delay < 300000000; delay++) {
+        for (volatile int delay = 0; delay < 5000000; delay++) {
+
             uint8_t sc = g_last_scancode;
             if (sc == 0x14) { // 'T' scancode
                 choice = 't';

@@ -3,6 +3,10 @@
 #include "task.h"
 #include "serial.h"
 #include "cap.h"
+#include "keyboard.h"
+#include "tor.h"
+#include "pmm.h"
+#include "fb_shell.h"
 
 /*
  * syscall.c — System call handling.
@@ -80,10 +84,6 @@ int64_t syscall_dispatch(uint64_t num,
              *   arg0 = capability slot index
              *   arg1 = virtual address of the string buffer (in user space)
              *   arg2 = length of string
-             *
-             * Under No Ambient Authority, we require a valid capability to write.
-             * For M6, the task must hold a CAP_TYPE_ENDPOINT with CAP_RIGHT_SEND
-             * in slot arg0. This acts as the output endpoint token.
              */
             cap_slot_t *slot;
             cap_err_t err = cap_lookup(current->cap_table, (uint32_t)arg0,
@@ -94,27 +94,20 @@ int64_t syscall_dispatch(uint64_t num,
                 return SYSRET_EACCESS;
             }
 
-            /* Safety check: ensure string memory is in user space (< 0x800000000000) */
             if (arg1 >= 0x800000000000ULL || (arg1 + arg2) >= 0x800000000000ULL) {
                 return SYSRET_EFAULT;
             }
 
-            /* Write characters directly to serial console */
             char *buf = (char *)arg1;
             for (uint64_t i = 0; i < arg2; i++) {
-                /* Exclude potential null terminators if present in length */
                 if (buf[i] == '\0') break;
                 write_serial_char(buf[i]);
+                fb_shell_putchar(buf[i]);
             }
             return SYSRET_OK;
         }
 
         case SYS_CAP_SEND: {
-            /*
-             * SYS_CAP_SEND:
-             *   arg0 = capability slot index (endpoint)
-             *   arg1 = virtual address of ipc_msg_t message to send
-             */
             if (arg1 >= 0x800000000000ULL || (arg1 + sizeof(ipc_msg_t)) >= 0x800000000000ULL) {
                 return SYSRET_EFAULT;
             }
@@ -128,11 +121,6 @@ int64_t syscall_dispatch(uint64_t num,
         }
 
         case SYS_CAP_RECV: {
-            /*
-             * SYS_CAP_RECV:
-             *   arg0 = capability slot index (endpoint)
-             *   arg1 = virtual address of ipc_msg_t buffer to receive into
-             */
             if (arg1 >= 0x800000000000ULL || (arg1 + sizeof(ipc_msg_t)) >= 0x800000000000ULL) {
                 return SYSRET_EFAULT;
             }
@@ -145,8 +133,60 @@ int64_t syscall_dispatch(uint64_t num,
             return SYSRET_OK;
         }
 
+        case SYS_EXIT: {
+            serial_printf("[SYSCALL] Task %d exited (code=%d)\n", current->id, (int)arg0);
+            current->state = TASK_STATE_DEAD;
+            sched_yield();
+            return SYSRET_OK;
+        }
+
+        case SYS_READ_KEY: {
+            /* Capability check: Console capability required in slot arg0 */
+            cap_slot_t *slot;
+            cap_err_t err = cap_lookup(current->cap_table, (uint32_t)arg0,
+                                       CAP_TYPE_ENDPOINT, CAP_RIGHT_RECV, &slot);
+            if (err != CAP_OK) {
+                return SYSRET_EACCESS;
+            }
+            char c = keyboard_get_char();
+            return (int64_t)(unsigned char)c;
+        }
+
+        case SYS_TOR_CELL: {
+            /* Capability check: Network/Tor capability required in slot arg0 */
+            cap_slot_t *slot;
+            cap_err_t err = cap_lookup(current->cap_table, (uint32_t)arg0,
+                                       CAP_TYPE_ENDPOINT, CAP_RIGHT_SEND, &slot);
+            if (err != CAP_OK) {
+                return SYSRET_EACCESS;
+            }
+            if (arg1 >= 0x800000000000ULL || (arg1 + arg2) >= 0x800000000000ULL || arg2 > 512) {
+                return SYSRET_EFAULT;
+            }
+            bool ok = tor_send_cell((const uint8_t *)arg1, (uint16_t)arg2, (uint32_t)arg0);
+            return ok ? SYSRET_OK : -1;
+        }
+
+
+        case SYS_SYSINFO: {
+            if (arg0 >= 0x800000000000ULL) {
+                return SYSRET_EFAULT;
+            }
+            struct sysinfo_data {
+                uint64_t free_mem_bytes;
+                uint32_t active_tasks;
+                uint32_t reserved;
+            } *info = (struct sysinfo_data *)arg0;
+
+            info->free_mem_bytes = pmm_get_free_memory();
+            info->active_tasks = 2; // Init + Shell
+            info->reserved = 0;
+            return SYSRET_OK;
+        }
+
         default:
             serial_printf("[SYSCALL] Unknown system call number: %d\n", (int)num);
             return SYSRET_EBADCALL;
     }
 }
+

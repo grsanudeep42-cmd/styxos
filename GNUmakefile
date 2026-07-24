@@ -87,7 +87,10 @@ SRCS := kernel/main.c kernel/font.c kernel/fb.c kernel/string.c \
         kernel/auth_counter.c \
         kernel/merkle.c \
         kernel/tpm_tis.c \
-        kernel/fb_shell.c
+        kernel/fb_shell.c \
+        kernel/tcp.c \
+        kernel/pqc.c
+
 
 
 ASMS := kernel/isr.asm kernel/irq.asm kernel/task.asm kernel/syscall.asm

@@ -7,6 +7,11 @@
 .global sys_read_key
 .global sys_tor_cell
 .global sys_sysinfo
+.global sys_socket
+.global sys_connect
+.global sys_send
+.global sys_recv
+.global sys_pqc_kem
 
 .text
 
@@ -57,3 +62,37 @@ sys_sysinfo:
     mov $7, %rax
     syscall
     ret
+
+/* int64_t sys_socket(uint32_t slot) */
+sys_socket:
+    mov $8, %rax
+    syscall
+    ret
+
+/* int64_t sys_connect(uint32_t slot, int sock, uint32_t ip, uint16_t port) */
+sys_connect:
+    mov %rcx, %r10
+    mov $9, %rax
+    syscall
+    ret
+
+/* int64_t sys_send(uint32_t slot, int sock, const void *buf, size_t len) */
+sys_send:
+    mov %rcx, %r10
+    mov $10, %rax
+    syscall
+    ret
+
+/* int64_t sys_recv(uint32_t slot, int sock, void *buf, size_t max_len) */
+sys_recv:
+    mov %rcx, %r10
+    mov $11, %rax
+    syscall
+    ret
+
+/* int64_t sys_pqc_kem(void *ct, void *ss, const void *pk) */
+sys_pqc_kem:
+    mov $12, %rax
+    syscall
+    ret
+

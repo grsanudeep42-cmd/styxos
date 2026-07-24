@@ -145,3 +145,24 @@ void yield(void) {
 void exit(int code) {
     sys_exit(code);
 }
+
+int styx_socket(uint32_t net_slot) {
+    return (int)sys_socket(net_slot);
+}
+
+int styx_connect(uint32_t net_slot, int sock, uint32_t ip, uint16_t port) {
+    return (int)sys_connect(net_slot, sock, ip, port);
+}
+
+int styx_send(uint32_t net_slot, int sock, const void *buf, size_t len) {
+    return (int)sys_send(net_slot, sock, buf, len);
+}
+
+int styx_recv(uint32_t net_slot, int sock, void *buf, size_t max_len) {
+    return (int)sys_recv(net_slot, sock, buf, max_len);
+}
+
+int styx_pqc_kem(void *ct, void *ss, const void *pk) {
+    return (int)sys_pqc_kem(ct, ss, pk);
+}
+

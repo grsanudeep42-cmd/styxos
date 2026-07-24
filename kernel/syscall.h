@@ -36,8 +36,14 @@
 #define SYS_READ_KEY   5   /* non-blocking keyboard input read             */
 #define SYS_TOR_CELL   6   /* encrypt & transmit Tor cell                  */
 #define SYS_SYSINFO    7   /* retrieve kernel memory & task stats          */
+#define SYS_SOCKET     8   /* create stateful TCP socket                   */
+#define SYS_CONNECT    9   /* connect TCP socket to remote IP:port         */
+#define SYS_SEND       10  /* send data over TCP socket                    */
+#define SYS_RECV       11  /* receive data from TCP socket                 */
+#define SYS_PQC_KEM    12  /* perform Kyber-1024 PQC key encapsulation     */
 
-#define SYS_MAX        8   /* total number of syscalls in StyxOS table     */
+#define SYS_MAX        13  /* total number of syscalls in StyxOS table     */
+
 
 
 /* ── Return codes ───────────────────────────────────────────────────────── */

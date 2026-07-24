@@ -17,6 +17,17 @@
 #define BEACON_DST_IP    0xC0A80101U  /* 192.168.1.1 (gateway in QEMU user-net) */
 #define BEACON_DST_PORT  4444U
 
+#define NET_TCP_HDR_LEN   20
+#define NET_TCP_PAYLOAD_MAX (NET_MAX_FRAME - NET_ETH_HDR_LEN - NET_IP_HDR_LEN - NET_TCP_HDR_LEN)
+
+/* TCP Flags */
+#define TCP_FIN 0x01
+#define TCP_SYN 0x02
+#define TCP_RST 0x04
+#define TCP_PSH 0x08
+#define TCP_ACK 0x10
+#define TCP_URG 0x20
+
 /* Build a complete Ethernet/IPv4/UDP frame into `frame_out` (caller provides ≥ NET_MAX_FRAME buf).
  * Returns total frame length, or 0 on error. */
 size_t net_build_udp(const uint8_t src_mac[6],
@@ -25,6 +36,22 @@ size_t net_build_udp(const uint8_t src_mac[6],
                      uint32_t      dst_ip,
                      uint16_t      src_port,
                      uint16_t      dst_port,
+                     const uint8_t *payload,
+                     size_t         payload_len,
+                     uint8_t       *frame_out);
+
+/* Build a complete Ethernet/IPv4/TCP frame into `frame_out`.
+ * Returns total frame length, or 0 on error. */
+size_t net_build_tcp(const uint8_t src_mac[6],
+                     const uint8_t dst_mac[6],
+                     uint32_t      src_ip,
+                     uint32_t      dst_ip,
+                     uint16_t      src_port,
+                     uint16_t      dst_port,
+                     uint32_t      seq_num,
+                     uint32_t      ack_num,
+                     uint8_t       flags,
+                     uint16_t      window_size,
                      const uint8_t *payload,
                      size_t         payload_len,
                      uint8_t       *frame_out);
@@ -39,3 +66,4 @@ size_t net_build_udp_broadcast(const uint8_t src_mac[6],
 
 /* Send distress beacon payload via e1000 to BEACON_DST_IP:BEACON_DST_PORT */
 bool net_send_beacon(const char *reason);
+

@@ -47,7 +47,10 @@
 #include "merkle.h"
 #include "fb_shell.h"
 #include "io.h"
+#include "tcp.h"
+#include "pqc.h"
 #include "user_init.bin.h"
+
 
 
 /* ── Limine protocol requests ─────────────────────────────────────────── */
@@ -734,9 +737,14 @@ void _start(void) {
 
     // 1. GDT and TSS are already installed and loaded at system startup.
 
+    // -- Phase 15: Stateful TCP & PQC Hardening --
+    tcp_init();
+    pqc_selftest();
+
     // 3. Program STAR/LSTAR/SFMASK MSRs for SYSCALL fast-path
     serial_printf("[M6] Initializing syscall gate...\n");
     syscall_init();
+
 
     // 4. Initialize task table
     task_init_table();

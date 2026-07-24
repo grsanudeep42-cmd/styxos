@@ -7,6 +7,8 @@
 #include "tor.h"
 #include "pmm.h"
 #include "fb_shell.h"
+#include "tcp.h"
+#include "pqc.h"
 
 /*
  * syscall.c — System call handling.
@@ -184,9 +186,73 @@ int64_t syscall_dispatch(uint64_t num,
             return SYSRET_OK;
         }
 
+        case SYS_SOCKET: {
+            /* Capability check: Network capability required in slot arg0 */
+            cap_slot_t *slot;
+            cap_err_t err = cap_lookup(current->cap_table, (uint32_t)arg0,
+                                       CAP_TYPE_ENDPOINT, CAP_RIGHT_SEND, &slot);
+            if (err != CAP_OK) {
+                return SYSRET_EACCESS;
+            }
+            int sock = tcp_socket_create();
+            return (int64_t)sock;
+        }
+
+        case SYS_CONNECT: {
+            /* Capability check: Network capability required in slot arg0 */
+            cap_slot_t *slot;
+            cap_err_t err = cap_lookup(current->cap_table, (uint32_t)arg0,
+                                       CAP_TYPE_ENDPOINT, CAP_RIGHT_SEND, &slot);
+            if (err != CAP_OK) {
+                return SYSRET_EACCESS;
+            }
+            int res = tcp_socket_connect((int)arg1, (uint32_t)arg2, (uint16_t)arg3);
+            return (int64_t)res;
+        }
+
+        case SYS_SEND: {
+            /* Capability check: Network capability required in slot arg0 */
+            cap_slot_t *slot;
+            cap_err_t err = cap_lookup(current->cap_table, (uint32_t)arg0,
+                                       CAP_TYPE_ENDPOINT, CAP_RIGHT_SEND, &slot);
+            if (err != CAP_OK) {
+                return SYSRET_EACCESS;
+            }
+            if (arg2 >= 0x800000000000ULL || (arg2 + arg3) >= 0x800000000000ULL) {
+                return SYSRET_EFAULT;
+            }
+            int res = tcp_socket_send((int)arg1, (const uint8_t *)arg2, (size_t)arg3);
+            return (int64_t)res;
+        }
+
+        case SYS_RECV: {
+            /* Capability check: Network capability required in slot arg0 */
+            cap_slot_t *slot;
+            cap_err_t err = cap_lookup(current->cap_table, (uint32_t)arg0,
+                                       CAP_TYPE_ENDPOINT, CAP_RIGHT_RECV, &slot);
+            if (err != CAP_OK) {
+                return SYSRET_EACCESS;
+            }
+            if (arg2 >= 0x800000000000ULL || (arg2 + arg3) >= 0x800000000000ULL) {
+                return SYSRET_EFAULT;
+            }
+            int res = tcp_socket_recv((int)arg1, (uint8_t *)arg2, (size_t)arg3);
+            return (int64_t)res;
+        }
+
+        case SYS_PQC_KEM: {
+            /* Kyber-1024 Key Encapsulation: arg0 = ct, arg1 = ss, arg2 = pk */
+            if (arg0 >= 0x800000000000ULL || arg1 >= 0x800000000000ULL || arg2 >= 0x800000000000ULL) {
+                return SYSRET_EFAULT;
+            }
+            int res = kyber1024_encapsulate((uint8_t *)arg0, (uint8_t *)arg1, (const uint8_t *)arg2);
+            return (int64_t)res;
+        }
+
         default:
             serial_printf("[SYSCALL] Unknown system call number: %d\n", (int)num);
             return SYSRET_EBADCALL;
     }
 }
+
 

@@ -92,6 +92,112 @@ size_t net_build_udp(const uint8_t src_mac[6],
     return (size_t)(p - frame_out);
 }
 
+/* ── Build TCP frame ───────────────────────────────────────────────────── */
+size_t net_build_tcp(const uint8_t src_mac[6],
+                     const uint8_t dst_mac[6],
+                     uint32_t      src_ip,
+                     uint32_t      dst_ip,
+                     uint16_t      src_port,
+                     uint16_t      dst_port,
+                     uint32_t      seq_num,
+                     uint32_t      ack_num,
+                     uint8_t       flags,
+                     uint16_t      window_size,
+                     const uint8_t *payload,
+                     size_t         payload_len,
+                     uint8_t       *frame_out) {
+    if (!frame_out || (payload_len > 0 && !payload) ||
+        payload_len > (size_t)NET_TCP_PAYLOAD_MAX)
+        return 0;
+
+    uint8_t *p = frame_out;
+
+    /* ── Ethernet header (14 bytes) ── */
+    memcpy(p, dst_mac, 6); p += 6;
+    memcpy(p, src_mac, 6); p += 6;
+    p[0] = 0x08; p[1] = 0x00; p += 2;  /* EtherType IPv4 */
+
+    /* ── IPv4 header (20 bytes) ── */
+    uint8_t *ip_start = p;
+    uint16_t total_len = (uint16_t)(NET_IP_HDR_LEN + NET_TCP_HDR_LEN + payload_len);
+
+    p[0]  = 0x45;                          /* Version=4, IHL=5 */
+    p[1]  = 0x00;                          /* DSCP/ECN */
+    p[2]  = (uint8_t)(total_len >> 8);
+    p[3]  = (uint8_t)(total_len);
+    p[4]  = 0x00; p[5] = 0x02;            /* ID = 2 */
+    p[6]  = 0x40; p[7] = 0x00;            /* Flags = DF, Frag Offset = 0 */
+    p[8]  = 64;                            /* TTL */
+    p[9]  = 6;                             /* Protocol = TCP (6) */
+    p[10] = 0; p[11] = 0;                 /* Checksum (computed below) */
+    p[12] = (uint8_t)(src_ip >> 24);
+    p[13] = (uint8_t)(src_ip >> 16);
+    p[14] = (uint8_t)(src_ip >>  8);
+    p[15] = (uint8_t)(src_ip);
+    p[16] = (uint8_t)(dst_ip >> 24);
+    p[17] = (uint8_t)(dst_ip >> 16);
+    p[18] = (uint8_t)(dst_ip >>  8);
+    p[19] = (uint8_t)(dst_ip);
+    uint16_t ip_csum = ip_checksum(ip_start, NET_IP_HDR_LEN);
+    p[10] = (uint8_t)(ip_csum >> 8);
+    p[11] = (uint8_t)(ip_csum);
+    p += NET_IP_HDR_LEN;
+
+    /* ── TCP header (20 bytes) ── */
+    uint8_t *tcp_start = p;
+    p[0] = (uint8_t)(src_port >> 8); p[1] = (uint8_t)src_port;
+    p[2] = (uint8_t)(dst_port >> 8); p[3] = (uint8_t)dst_port;
+
+    p[4] = (uint8_t)(seq_num >> 24); p[5] = (uint8_t)(seq_num >> 16);
+    p[6] = (uint8_t)(seq_num >>  8); p[7] = (uint8_t)seq_num;
+
+    p[8]  = (uint8_t)(ack_num >> 24); p[9]  = (uint8_t)(ack_num >> 16);
+    p[10] = (uint8_t)(ack_num >>  8); p[11] = (uint8_t)ack_num;
+
+    p[12] = 0x50; /* Data offset = 5 words (20 bytes) */
+    p[13] = flags;
+
+    p[14] = (uint8_t)(window_size >> 8);
+    p[15] = (uint8_t)window_size;
+
+    p[16] = 0; p[17] = 0; /* Checksum placeholder */
+    p[18] = 0; p[19] = 0; /* Urgent pointer */
+    p += NET_TCP_HDR_LEN;
+
+    /* ── Payload ── */
+    if (payload_len > 0 && payload) {
+        memcpy(p, payload, payload_len);
+        p += payload_len;
+    }
+
+    /* Compute TCP Checksum using IPv4 Pseudo-Header */
+    uint32_t sum = 0;
+    /* Pseudo-header: Src IP, Dst IP, Reserved(0), Protocol(6), TCP Length */
+    sum += (src_ip >> 16) & 0xFFFF; sum += src_ip & 0xFFFF;
+    sum += (dst_ip >> 16) & 0xFFFF; sum += dst_ip & 0xFFFF;
+    sum += 6; /* Protocol TCP */
+    uint16_t tcp_len = (uint16_t)(NET_TCP_HDR_LEN + payload_len);
+    sum += tcp_len;
+
+    /* TCP Header + Payload words */
+    size_t tcp_total_bytes = NET_TCP_HDR_LEN + payload_len;
+    for (size_t i = 0; i + 1 < tcp_total_bytes; i += 2) {
+        sum += (uint16_t)((tcp_start[i] << 8) | tcp_start[i + 1]);
+    }
+    if (tcp_total_bytes & 1) {
+        sum += (uint16_t)(tcp_start[tcp_total_bytes - 1] << 8);
+    }
+    while (sum >> 16) {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+    uint16_t tcp_csum = (uint16_t)(~sum);
+    tcp_start[16] = (uint8_t)(tcp_csum >> 8);
+    tcp_start[17] = (uint8_t)(tcp_csum);
+
+    return (size_t)(p - frame_out);
+}
+
+
 size_t net_build_udp_broadcast(const uint8_t src_mac[6],
                                uint16_t src_port,
                                uint16_t dst_port,

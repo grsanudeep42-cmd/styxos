@@ -96,14 +96,30 @@ static const char scancode_to_ascii_shift[] = {
     0,  /* F12 Key */
 };
 
+static char g_key_ring[64];
+static size_t g_key_head = 0;
+static size_t g_key_tail = 0;
+
+static void key_ring_push(char c) {
+    size_t next = (g_key_head + 1) % 64;
+    if (next != g_key_tail) {
+        g_key_ring[g_key_head] = c;
+        g_key_head = next;
+    }
+}
+
+char keyboard_get_char(void) {
+    if (g_key_head == g_key_tail) return 0;
+    char c = g_key_ring[g_key_tail];
+    g_key_tail = (g_key_tail + 1) % 64;
+    return c;
+}
+
 static void keyboard_callback(struct registers *regs) {
     (void)regs;
     uint8_t scancode = inb(KEYBOARD_DATA_PORT);
     g_last_scancode = scancode;
 
-    // Track shift key presses and releases
-    // Left shift press: 0x2A, Left shift release: 0xAA
-    // Right shift press: 0x36, Right shift release: 0xB6
     if (scancode == 0x2A || scancode == 0x36) {
         shift_pressed = true;
         return;
@@ -112,18 +128,17 @@ static void keyboard_callback(struct registers *regs) {
         return;
     }
 
-    // Ignore key release codes (break codes are scancode >= 0x80)
     if (scancode & 0x80) {
         return;
     }
 
-    // Map scancode to ASCII
     char ascii = 0;
     if (scancode < sizeof(scancode_to_ascii_nomod)) {
         ascii = shift_pressed ? scancode_to_ascii_shift[scancode] : scancode_to_ascii_nomod[scancode];
     }
 
     if (ascii != 0) {
+        key_ring_push(ascii);
         serial_printf("Keyboard: scancode=%x char=%c\n", (uint32_t)scancode, ascii);
 
         uint32_t fb_w = fb_get_width();
@@ -135,29 +150,28 @@ static void keyboard_callback(struct registers *regs) {
         } else if (ascii == '\b') {
             if (cursor_x > MARGIN_X) {
                 cursor_x -= FONT_WIDTH;
-                fb_draw_rect(cursor_x, cursor_y, FONT_WIDTH, FONT_HEIGHT, 0x00000000); // Black rect
+                fb_draw_rect(cursor_x, cursor_y, FONT_WIDTH, FONT_HEIGHT, 0x00000000);
             }
         } else {
-            // Draw printable character
-            fb_draw_char(cursor_x, cursor_y, ascii, 0x00FFFFFF); // White character
+            fb_draw_char(cursor_x, cursor_y, ascii, 0x00FFFFFF);
             cursor_x += FONT_WIDTH;
 
-            // Handle horizontal screen wrapping
             if (cursor_x + FONT_WIDTH >= (int)fb_w) {
                 cursor_x = MARGIN_X;
                 cursor_y += LINE_H;
             }
         }
 
-        // Handle vertical screen wrapping (clear typing space when reaching bottom)
         if (cursor_y + LINE_H >= (int)fb_h) {
             cursor_y = MARGIN_Y + 4 * LINE_H;
-            fb_draw_rect(0, cursor_y, fb_w, fb_h - cursor_y, 0x00000000); // Clear lines 4+
+            fb_draw_rect(0, cursor_y, fb_w, fb_h - cursor_y, 0x00000000);
         }
     }
 }
 
 void keyboard_init(void) {
+    g_key_head = g_key_tail = 0;
     irq_install_handler(1, keyboard_callback);
     serial_printf("Keyboard Init: Handler registered on IRQ1\n");
 }
+

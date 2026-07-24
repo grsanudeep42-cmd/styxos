@@ -9,3 +9,5 @@ extern bool     g_padding_boost_active;
 void padding_init(void);
 bool padding_inject_noise(void);
 void padding_boost(bool active);
+void padding_tick(uint64_t ticks);
+

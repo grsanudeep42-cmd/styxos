@@ -22,3 +22,5 @@ bool tor_init(void);
 bool tor_send_cell(const uint8_t *payload, uint16_t len, uint32_t cap_token);
 void tor_rotate_circuit(void);
 bool tor_check_dead_reckoning(bool simulate_drop);
+void tor_tick(uint64_t ticks);
+

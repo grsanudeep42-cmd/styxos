@@ -80,7 +80,15 @@ SRCS := kernel/main.c kernel/font.c kernel/fb.c kernel/string.c \
         kernel/manifest.c \
         kernel/shell.c \
         kernel/tpm.c \
-        kernel/tpm_visual.c
+        kernel/tpm_visual.c \
+        kernel/csprng.c \
+        kernel/chacha20.c \
+        kernel/net_proto.c \
+        kernel/auth_counter.c \
+        kernel/merkle.c \
+        kernel/tpm_tis.c \
+        kernel/fb_shell.c
+
 
 ASMS := kernel/isr.asm kernel/irq.asm kernel/task.asm kernel/syscall.asm
 OBJS := $(SRCS:.c=.o) $(ASMS:.asm=.asm.o)

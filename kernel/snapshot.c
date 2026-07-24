@@ -14,13 +14,11 @@
 #define SNAPSHOT_MAGIC   0x53545958534e4150ULL // "STYXSNAP"
 #define SNAPSHOT_VERSION 1
 
-// We use a static key for snapshot integrity
-static const uint8_t g_snapshot_key[32] = {
-    0x53, 0x54, 0x59, 0x61, 0x73, 0x6e, 0x61, 0x70,
-    0x49, 0x6e, 0x74, 0x65, 0x67, 0x72, 0x69, 0x74,
-    0x79, 0x4b, 0x65, 0x79, 0x5f, 0x33, 0x32, 0x42,
-    0x79, 0x74, 0x65, 0x73, 0x5f, 0x4d, 0x31, 0x30
-};
+// Snapshot key derived from auth HKDF output at runtime.
+// Set via snapshot_set_key() called by auth_preboot() on success.
+// NOT a compile-time constant — zeroed on init, set only after successful auth.
+static uint8_t g_snapshot_key[32];
+static bool    g_snapshot_key_set = false;
 
 static uint64_t g_sequence_number = 1;
 
@@ -68,9 +66,35 @@ static void get_cpuid_features(uint32_t *ecx, uint32_t *edx) {
 /* ── Public APIs ────────────────────────────────────────────────────────── */
 
 void snapshot_init(void) {
+    memset(g_snapshot_key, 0, 32);
+    g_snapshot_key_set = false;
     oram_init();
     serial_printf("[SNAPSHOT] Session Snapshot System initialized.\n");
 }
+
+/* Called by auth_preboot() immediately after successful authentication.
+ * Derives the 32-byte snapshot key from the 64-byte auth HKDF output.
+ * Zeros the source key after derivation to limit key exposure window. */
+void snapshot_set_key(const uint8_t *auth_derived_key) {
+    if (!auth_derived_key) return;
+    /* Derive snapshot-specific 32-byte key from auth key */
+    uint8_t prk[64];
+    const uint8_t info[] = "styxos-snapshot-key-v1";
+    /* Use first 32 bytes as HMAC key, derive 32-byte okm */
+    hkdf_sha512_extract(auth_derived_key, 32,
+                        auth_derived_key + 32, 32, prk);
+    hkdf_sha512_expand(prk, info, sizeof(info) - 1, g_snapshot_key, 32);
+    memset(prk, 0, 64);
+    g_snapshot_key_set = true;
+    serial_printf("[SNAPSHOT] Auth-derived snapshot key installed.\n");
+}
+
+void snapshot_zero_key(void) {
+    memset(g_snapshot_key, 0, 32);
+    g_snapshot_key_set = false;
+    serial_printf("[SNAPSHOT] Snapshot key zeroed.\n");
+}
+
 
 int snapshot_save(void) {
     serial_printf("[SNAPSHOT] Starting secure RAM session snapshot...\n");

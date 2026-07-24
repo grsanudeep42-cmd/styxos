@@ -6,11 +6,19 @@
 
 static volatile uint64_t pit_ticks = 0;
 
+#include "padding.h"
+#include "tor.h"
+#include "fb_shell.h"
+
 static void pit_callback(struct registers *regs) {
     (void)regs;
     pit_ticks++;
+    padding_tick(pit_ticks);
+    tor_tick(pit_ticks);
+    fb_shell_cursor_tick();
     sched_tick();   /* drive round-robin preemption every PIT tick */
 }
+
 
 void pit_init(uint32_t frequency) {
     // 1. Install PIT IRQ0 handler (master PIC IRQ0 corresponds to vector 32)

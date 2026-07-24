@@ -1,4 +1,9 @@
+/*
+ * shell.c — Interactive Security Shell UI & REPL logic
+ */
 #include "shell.h"
+#include "fb_shell.h"
+#include "keyboard.h"
 #include "serial.h"
 #include "string.h"
 #include "anonymize.h"
@@ -10,135 +15,151 @@
 #include "pmm.h"
 #include "heap.h"
 #include "manifest.h"
-#include "keyboard.h"
+#include "auth_counter.h"
+#include "merkle.h"
 
 static void cmd_help(void) {
-    serial_printf("\n--- STYX OS SECURITY UTILITIES ---\n");
-    serial_printf("  help     - Display this help menu\n");
-    serial_printf("  sysinfo  - Display system health, memory, and anonymization status\n");
-    serial_printf("  net      - Query e1000 NIC state, traffic padding & kill-switch\n");
-    serial_printf("  tor      - Query Tor 3-hop circuit status & trigger key rotation\n");
-    serial_printf("  snapshot - Trigger atomic AES-256-GCM + PathORAM session snapshot\n");
-    serial_printf("  auth     - Query pre-boot FIDO2 CTAP2 authentication status\n");
-    serial_printf("  wipe     - Trigger emergency 3-pass self-destruct overwrite\n");
-    serial_printf("----------------------------------\n\n");
+    fb_shell_puts("\n--- STYX OS SECURITY UTILITIES ---\n");
+    fb_shell_puts("  help     - Display this help menu\n");
+    fb_shell_puts("  sysinfo  - Display system health, memory & MAC status\n");
+    fb_shell_puts("  net      - Query e1000 NIC state, traffic padding & counters\n");
+    fb_shell_puts("  tor      - Query Tor 3-hop circuit status & trigger rotation\n");
+    fb_shell_puts("  snapshot - Trigger atomic AES-256-GCM + PathORAM session snapshot\n");
+    fb_shell_puts("  auth     - Query pre-boot FIDO2 CTAP2 & tamper counter state\n");
+    fb_shell_puts("  merkle   - Print SHA-256 Merkle root hash\n");
+    fb_shell_puts("  wipe     - Trigger emergency 3-pass self-destruct overwrite\n");
+    fb_shell_puts("----------------------------------\n\n");
 }
 
 static void cmd_sysinfo(void) {
-    serial_printf("\n--- STYX OS SYSTEM INFORMATION ---\n");
-    serial_printf("Kernel: Custom x86-64 Microkernel (Higher-Half)\n");
-    serial_printf("Bootloader: Limine Protocol v3\n");
-    
+    fb_shell_puts("\n--- STYX OS SYSTEM INFORMATION ---\n");
+    fb_shell_puts("Kernel: Custom x86-64 Microkernel (Higher-Half)\n");
+
     uint64_t total_mb = pmm_get_total_memory() / (1024 * 1024);
     uint64_t free_mb = pmm_get_free_memory() / (1024 * 1024);
-    serial_printf("Memory (PMM): %d MB Total | %d MB Free\n", (int)total_mb, (int)free_mb);
-    
+    fb_shell_printf("Memory (PMM): %d MB Total | %d MB Free\n", (int)total_mb, (int)free_mb);
+
     uint8_t mac[6];
     anonymize_get_mac(mac);
-    serial_printf("Hardware MAC: %x:%x:%x:%x:%x:%x (Locally Administered Unicast)\n",
-                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    serial_printf("CPUID Mask: Hypervisor Bit Stripped\n");
-    serial_printf("----------------------------------\n\n");
+    fb_shell_printf("Hardware MAC: %x:%x:%x:%x:%x:%x\n",
+                    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    fb_shell_puts("----------------------------------\n\n");
 }
 
 static void cmd_net(void) {
-    serial_printf("\n--- NETWORK ANONYMITY STACK STATUS ---\n");
-    serial_printf("PCI Driver: Intel 82540EM Gigabit Ethernet (e1000)\n");
-    serial_printf("NIC Hardware State: %s\n", g_e1000_active ? "ACTIVE [UP]" : "DISABLED [DOWN]");
-    serial_printf("Traffic Padding: 50 Kbps baseline stream (%s)\n",
-                  g_padding_boost_active ? "BOOSTED" : "BASELINE");
-    serial_printf("Synthetic Noise Packets Sent: %d\n", g_padding_packets_sent);
-    serial_printf("Packets Transmitted (TX): %d | Received (RX): %d\n", g_e1000_tx_count, g_e1000_rx_count);
-    serial_printf("-------------------------------------\n\n");
+    fb_shell_puts("\n--- NETWORK ANONYMITY STACK STATUS ---\n");
+    fb_shell_printf("PCI Driver: Intel 82540EM (e1000) [%s]\n",
+                    g_e1000_active ? "ACTIVE" : "DOWN");
+    fb_shell_printf("Traffic Padding: Constant-Rate UDP Stream (%s)\n",
+                    g_padding_boost_active ? "BOOSTED" : "BASELINE");
+    fb_shell_printf("Noise Packets Sent: %d | TX: %d | RX: %d\n",
+                    g_padding_packets_sent, g_e1000_tx_count, g_e1000_rx_count);
+    fb_shell_puts("-------------------------------------\n\n");
 }
 
 static void cmd_tor(void) {
-    serial_printf("\n--- TOR SYSTEM CAPABILITY DOMAIN ---\n");
-    serial_printf("Capability Token: 0x%x (CAP_NET Enforced)\n", TOR_CAPABILITY_TOKEN);
-    serial_printf("Circuit ID: 0x%x\n", g_tor_circuit.circuit_id);
-    serial_printf("Circuit Topology: 3-Hop Onion (Entry -> Middle -> Exit)\n");
-    serial_printf("Status: %s\n", g_tor_circuit.established ? "ESTABLISHED" : "TEARDOWN");
-    serial_printf("Encrypted Cells Dispatched: %d\n", g_tor_cells_sent);
-    
-    serial_printf("\nExecuting circuit key rotation...\n");
+    fb_shell_puts("\n--- TOR SYSTEM CAPABILITY DOMAIN ---\n");
+    fb_shell_printf("Circuit ID: 0x%x | Encrypted Cells: %d\n",
+                    g_tor_circuit.circuit_id, g_tor_cells_sent);
+    fb_shell_puts("Executing ChaCha20 key rotation...\n");
     tor_rotate_circuit();
-    serial_printf("------------------------------------\n\n");
+    fb_shell_puts("------------------------------------\n\n");
 }
 
 static void cmd_snapshot(void) {
-    serial_printf("\n--- AES-256-GCM + PathORAM SNAPSHOT ---\n");
-    serial_printf("PathORAM Configuration: L=6, Z=4 (64 Leaf Buckets, 512 B Sector Blocks)\n");
-    serial_printf("AEAD Mode: AES-256-GCM (Zero-Window Galois Field Precomputed Table)\n");
-    serial_printf("Serializing current task execution context...\n");
-    
+    fb_shell_puts("\n--- AES-256-GCM + PathORAM SNAPSHOT ---\n");
     if (snapshot_save() == 0) {
-        serial_printf("[SNAPSHOT] PASSED: Atomic AES-256-GCM snapshot written to PathORAM.\n");
+        fb_shell_puts("[SNAPSHOT] PASSED: Atomic AES-256-GCM snapshot written to PathORAM.\n");
     } else {
-        serial_printf("[SNAPSHOT] ERROR: Snapshot serialization failed!\n");
+        fb_shell_puts("[SNAPSHOT] ERROR: Snapshot serialization failed!\n");
     }
-    serial_printf("---------------------------------------\n\n");
+    fb_shell_puts("---------------------------------------\n\n");
 }
 
 static void cmd_auth(void) {
-    serial_printf("\n--- PRE-BOOT FIDO2 CTAP2 AUTHENTICATION ---\n");
-    serial_printf("Authentication Mode: FIDO2 Hardware Key + Argon2id Passphrase\n");
-    serial_printf("Hardware Salt: Bound to CPUID + USB Serial\n");
-    serial_printf("Pre-Boot Token Asserted: YES (CTAP2 Challenge-Response Validated)\n");
-    serial_printf("Tamper Counter: 0 / 3 failed attempts\n");
-    serial_printf("-------------------------------------------\n\n");
+    fb_shell_puts("\n--- PRE-BOOT FIDO2 CTAP2 AUTHENTICATION ---\n");
+    fb_shell_printf("Attempt Counter: %d / %d failed attempts\n",
+                    auth_counter_get(), AUTH_COUNTER_MAX);
+    fb_shell_puts("Status: Authenticated (Derived Session Key Active)\n");
+    fb_shell_puts("-------------------------------------------\n\n");
+}
+
+static void cmd_merkle(void) {
+    uint8_t root[32];
+    merkle_get_root(root);
+    fb_shell_puts("\n--- SHA-256 MERKLE SECTOR INTEGRITY TREE ---\n");
+    fb_shell_printf("Root Hash: %02x%02x%02x%02x...%02x%02x\n",
+                    root[0], root[1], root[2], root[3], root[30], root[31]);
+    fb_shell_puts("--------------------------------------------\n\n");
 }
 
 static void cmd_wipe(void) {
-    serial_printf("\n[WARNING] EMERGENCY SELF-DESTRUCT TRIGGERED!\n");
-    serial_printf("[DESTRUCT] Initiating 3-Pass Overwrite (CSPRNG -> 0x00 -> CSPRNG)...\n");
-    destruct_trigger("Manual user wipe command");
-}
-
-void shell_init(void) {
-    serial_printf("\n====================================================\n");
-    serial_printf("               STYX OS SECURITY SHELL               \n");
-    serial_printf("             where data goes to die v2.0            \n");
-    serial_printf("====================================================\n");
-    serial_printf("Type 'help' for available security commands.\n\n");
+    fb_shell_puts("\n[WARNING] EMERGENCY SELF-DESTRUCT TRIGGERED!\n");
+    destruct_trigger("Manual user wipe command from shell");
 }
 
 void shell_execute_cmd(const char *cmd_line) {
     if (!cmd_line || strlen(cmd_line) == 0) return;
 
-    serial_printf("styx# %s\n", cmd_line);
+    if (strcmp(cmd_line, "help") == 0) cmd_help();
+    else if (strcmp(cmd_line, "sysinfo") == 0) cmd_sysinfo();
+    else if (strcmp(cmd_line, "net") == 0) cmd_net();
+    else if (strcmp(cmd_line, "tor") == 0) cmd_tor();
+    else if (strcmp(cmd_line, "snapshot") == 0) cmd_snapshot();
+    else if (strcmp(cmd_line, "auth") == 0) cmd_auth();
+    else if (strcmp(cmd_line, "merkle") == 0) cmd_merkle();
+    else if (strcmp(cmd_line, "wipe") == 0) cmd_wipe();
+    else fb_shell_printf("Unknown command: '%s'. Type 'help'\n\n", cmd_line);
+}
 
-    if (strcmp(cmd_line, "help") == 0) {
-        cmd_help();
-    } else if (strcmp(cmd_line, "sysinfo") == 0) {
-        cmd_sysinfo();
-    } else if (strcmp(cmd_line, "net") == 0) {
-        cmd_net();
-    } else if (strcmp(cmd_line, "tor") == 0) {
-        cmd_tor();
-    } else if (strcmp(cmd_line, "snapshot") == 0) {
-        cmd_snapshot();
-    } else if (strcmp(cmd_line, "auth") == 0) {
-        cmd_auth();
-    } else if (strcmp(cmd_line, "wipe") == 0) {
-        cmd_wipe();
-    } else {
-        serial_printf("Unknown command: '%s'. Type 'help' for available commands.\n\n", cmd_line);
-    }
+void shell_init(void) {
+    fb_shell_init();
+    fb_shell_puts("====================================================\n");
+    fb_shell_puts("               STYX OS SECURITY SHELL               \n");
+    fb_shell_puts("             where data goes to die v2.0            \n");
+    fb_shell_puts("====================================================\n");
+    fb_shell_puts("Type 'help' for available security commands.\n\n");
 }
 
 void shell_run(void) {
     shell_init();
-
-    // Verify shell binary against signed manifest
     manifest_verify_elf("/bin/shell.elf", (const uint8_t*)"STYX_SHELL_BINARY", 17);
 
-    // Execute core security verification commands sequence
-    shell_execute_cmd("help");
-    shell_execute_cmd("sysinfo");
-    shell_execute_cmd("net");
-    shell_execute_cmd("tor");
-    shell_execute_cmd("snapshot");
-    shell_execute_cmd("auth");
-    
-    serial_printf("\n[SHELL] Interactive Security Shell operational.\n");
+    // Initial automated test printout
+    cmd_help();
+    fb_shell_puts("styx# ");
+
+    // Interactive REPL loop
+    char line_buf[128];
+    size_t line_pos = 0;
+    memset(line_buf, 0, sizeof(line_buf));
+
+    for (;;) {
+        char c = keyboard_get_char();
+        if (c == 0) {
+            // Spin brief CPU pause
+            for (volatile int d = 0; d < 1000; d++) __asm__ volatile("pause");
+            continue;
+        }
+
+        if (c == '\n' || c == '\r') {
+            fb_shell_putchar('\n');
+            line_buf[line_pos] = '\0';
+            if (line_pos > 0) {
+                shell_execute_cmd(line_buf);
+                line_pos = 0;
+                memset(line_buf, 0, sizeof(line_buf));
+            }
+            fb_shell_puts("styx# ");
+        } else if (c == '\b') {
+            if (line_pos > 0) {
+                line_pos--;
+                line_buf[line_pos] = '\0';
+                fb_shell_putchar('\b');
+            }
+        } else if (c >= 32 && c <= 126 && line_pos < sizeof(line_buf) - 1) {
+            line_buf[line_pos++] = c;
+            fb_shell_putchar(c);
+        }
+    }
 }

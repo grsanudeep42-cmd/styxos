@@ -38,9 +38,17 @@
 #include "manifest.h"
 #include "shell.h"
 #include "tpm.h"
+#include "tpm_tis.h"
 #include "tpm_visual.h"
+#include "csprng.h"
+#include "chacha20.h"
+#include "net_proto.h"
+#include "auth_counter.h"
+#include "merkle.h"
+#include "fb_shell.h"
 #include "io.h"
 #include "user_init.bin.h"
+
 
 /* ── Limine protocol requests ─────────────────────────────────────────── */
 
@@ -595,9 +603,12 @@ void _start(void) {
     heap_dump();
 
     serial_printf("--- HEAP SANITY TEST END ---\n\n");
-    // ── END HEAP SANITY TEST ──────────────────────────────────────────────
+
+    /* Initialize SHA-256 Merkle Sector Integrity Tree */
+    merkle_init();
 
     serial_printf("Styx OS: Boot sequence complete.\n");
+
 
     // ── M5 CAPABILITY ENGINE SANITY TESTS ────────────────────────────────
     // All tests run in ring 0. No scheduler yet. Rendezvous is tested via

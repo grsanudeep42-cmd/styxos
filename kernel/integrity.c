@@ -1,19 +1,20 @@
+/*
+ * integrity.c — Sector integrity using Merkle tree
+ * Replaces stub (always-true). Now delegates to merkle_verify().
+ */
 #include "integrity.h"
-#include "crypto.h"
+#include "merkle.h"
 #include "serial.h"
 
 bool g_tamper_simulate = false;
 
+
 bool integrity_verify_sector(uint32_t lba, const uint8_t *data) {
-    uint8_t hash[64];
-    sha512(data, 512, hash);
+    if (!data) return false;
 
-    if (g_tamper_simulate) {
-        serial_printf("[INTEGRITY] Sector %d: integrity verification FAILED (simulated tamper)\n", lba);
-        return false;
+    bool ok = merkle_verify(lba, data);
+    if (!ok) {
+        serial_printf("[INTEGRITY] TAMPER DETECTED at LBA %d — Merkle hash mismatch\n", lba);
     }
-
-    // In a fully populated Merkle tree we would check against parent nodes.
-    // For M9, we verify and log the sector SHA-512 root hash status.
-    return true;
+    return ok;
 }

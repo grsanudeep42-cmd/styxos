@@ -1,28 +1,30 @@
+/*
+ * tpm.c — TPM 2.0 interface using real TIS MMIO hardware driver (tpm_tis.c)
+ */
 #include "tpm.h"
+#include "tpm_tis.h"
 #include "vmm.h"
 #include "crypto.h"
 #include "serial.h"
 #include "string.h"
 
 tpm2_state_t g_tpm2_state;
-static uintptr_t g_tpm_mmio = 0;
 
 void tpm2_init(void) {
-    uint64_t hhdm = vmm_get_hhdm_offset();
-    uint64_t phys = TPM_MMIO_BASE;
-    uint64_t virt = hhdm + phys;
-
-    // Map TPM MMIO region into virtual memory
-    vmm_map_page(virt, phys, PTE_PRESENT | PTE_WRITABLE);
-    g_tpm_mmio = virt;
-
     memset(&g_tpm2_state, 0, sizeof(g_tpm2_state));
-    g_tpm2_state.initialized = true;
 
-    serial_printf("[TPM2] TPM 2.0 TIS MMIO interface mapped at 0x%x (Phys: 0x%x)\n",
-                  (uint32_t)g_tpm_mmio, (uint32_t)phys);
+    bool tis_ok = tpm_tis_init();
+    if (tis_ok) {
+        tpm2_startup();
+        tpm2_self_test();
+        g_tpm2_state.initialized = true;
+        serial_printf("[TPM2] Hardware TIS interface connected.\n");
+    } else {
+        serial_printf("[TPM2] TIS hardware not detected — using in-memory software PCR model\n");
+        g_tpm2_state.initialized = true;
+    }
 
-    // Initial measurements into PCR 0, 1, 2
+    /* Initial measurements into PCR 0, 1, 2 */
     const char *kernel_code = "STYX_KERNEL_IMAGE_V2.0";
     const char *boot_params = "LIMINE_BOOT_CFG_MEASURED";
     const char *mem_layout  = "PMM_BITMAP_126MB_LAYOUT";
@@ -37,7 +39,7 @@ void tpm2_init(void) {
 bool tpm2_pcr_extend(uint32_t pcr_index, const uint8_t *data, size_t len) {
     if (pcr_index >= TPM_PCR_COUNT || !data || len == 0) return false;
 
-    // SHA-512 digest computation reduced to 32-byte PCR slot
+    /* 1. Software state update */
     uint8_t input_buffer[SHA512_DIGEST_SIZE + 256];
     memcpy(input_buffer, g_tpm2_state.pcr[pcr_index], SHA256_DIGEST_SIZE);
 
@@ -50,8 +52,10 @@ bool tpm2_pcr_extend(uint32_t pcr_index, const uint8_t *data, size_t len) {
     uint8_t extended_digest[SHA512_DIGEST_SIZE];
     sha512(input_buffer, cat_len, extended_digest);
 
-    // Update PCR digest
     memcpy(g_tpm2_state.pcr[pcr_index], extended_digest, SHA256_DIGEST_SIZE);
+
+    /* 2. Hardware TIS update if active */
+    tpm2_pcr_extend_real(pcr_index, extended_digest);
 
     serial_printf("[TPM2] PCR[%d] extended: 0x%x...%x\n", pcr_index,
                   (uint32_t)g_tpm2_state.pcr[pcr_index][0],
@@ -61,15 +65,21 @@ bool tpm2_pcr_extend(uint32_t pcr_index, const uint8_t *data, size_t len) {
 
 void tpm2_get_pcr(uint32_t pcr_index, uint8_t *out_digest) {
     if (pcr_index >= TPM_PCR_COUNT || !out_digest) return;
-    memcpy(out_digest, g_tpm2_state.pcr[pcr_index], SHA256_DIGEST_SIZE);
+
+    /* Try real TIS read first, fallback to cached state */
+    if (!tpm2_pcr_read_real(pcr_index, out_digest)) {
+        memcpy(out_digest, g_tpm2_state.pcr[pcr_index], SHA256_DIGEST_SIZE);
+    }
 }
 
 bool tpm2_verify_attestation(void) {
-    // Verify PCR 0 is non-zero (measured)
     uint8_t zero_digest[SHA256_DIGEST_SIZE];
     memset(zero_digest, 0, SHA256_DIGEST_SIZE);
 
-    if (memcmp(g_tpm2_state.pcr[0], zero_digest, SHA256_DIGEST_SIZE) == 0) {
+    uint8_t pcr0[SHA256_DIGEST_SIZE];
+    tpm2_get_pcr(0, pcr0);
+
+    if (memcmp(pcr0, zero_digest, SHA256_DIGEST_SIZE) == 0) {
         serial_printf("[TPM2] ATTESTATION ERROR: PCR[0] is unmeasured / zero!\n");
         return false;
     }

@@ -240,6 +240,7 @@ int xhci_control(uint8_t slot, uint8_t bmReqType, uint8_t bReq,
 /* ── xhci_bulk_out / xhci_bulk_in ───────────────────────────────────────── */
 static int bulk_xfer(xhci_ring_t *r, uint64_t r_phys, uint8_t ep_id,
                      void *buf, size_t len) {
+    if (!r || !r_phys) return -1;
     uint64_t phys = vmm_virt_to_phys((uint64_t)buf);
     ring_enqueue(r, r_phys,
                  (uint32_t)(phys & 0xFFFFFFFF),
@@ -249,6 +250,7 @@ static int bulk_xfer(xhci_ring_t *r, uint64_t r_phys, uint8_t ep_id,
     db_wr(g_msd.slot_id, ep_id);
     return wait_transfer_complete() ? 0 : -1;
 }
+
 
 int xhci_bulk_out(const void *buf, size_t len) {
     return bulk_xfer(g_xfer_bulk_out, g_xfer_bulk_out_phys,
@@ -283,10 +285,15 @@ bool xhci_init(void) {
         uint64_t virt = hhdm + phys;
         vmm_map_page(virt, phys, PTE_PRESENT | PTE_WRITABLE);
     }
+    if (pdev.bar0 == 0) {
+        serial_printf("[XHCI] ERROR: Invalid BAR0 (0x0). Controller not configured.\n");
+        return false;
+    }
     g_mmio = hhdm + pdev.bar0;
     g_op   = cap_rd(XHCI_CAPLENGTH) & 0xFF;
     g_rt   = cap_rd(XHCI_RTSOFF) & ~0x1Fu;
     g_db   = cap_rd(XHCI_DBOFF)  & ~0x3u;
+
 
     uint32_t max_slots = cap_rd(XHCI_HCSPARAMS1) & 0xFF;
     uint32_t max_ports = (cap_rd(XHCI_HCSPARAMS1) >> 24) & 0xFF;

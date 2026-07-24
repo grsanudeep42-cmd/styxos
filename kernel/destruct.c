@@ -1,72 +1,84 @@
+/*
+ * destruct.c — Tamper-response self-destruct sequence
+ *
+ * Sequence (hardened):
+ *   1. Send real UDP distress beacon via e1000 (net_proto.c)
+ *   2. 500ms transmission window
+ *   3. 3-pass secure overwrite of key sectors (CSPRNG → zero → CSPRNG)
+ *   4. Zero in-RAM key material
+ *   5. cli + hlt
+ */
 #include "destruct.h"
+#include "net_proto.h"
 #include "usb_msc.h"
-#include "serial.h"
+#include "csprng.h"
 #include "string.h"
+#include "serial.h"
+#include <stdint.h>
 
-static void fill_csprng(uint8_t *buf, size_t len) {
-    static uint64_t seed = 0x5A5A5A5A3C3C3C3CU;
-    uint64_t val = seed;
-    for (size_t i = 0; i < len; i++) {
-        uint32_t lo, hi;
-        __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
-        val = val * 6364136223846793005ULL + lo + hi;
-        buf[i] = (uint8_t)(val >> ((i % 8) * 8));
+/* ── 3-pass secure sector wipe ──────────────────────────────────────────── */
+static void wipe_sectors(uint32_t start_lba, uint32_t count) {
+    uint8_t buf[512];
+
+    serial_printf("[DESTRUCT] Wiping LBA %d-%d (%d sectors, 3 passes)...\n",
+                  start_lba, start_lba + count - 1, count);
+
+    /* Pass 1: CSPRNG noise */
+    serial_printf("[DESTRUCT] Pass 1: CSPRNG noise\n");
+    for (uint32_t lba = start_lba; lba < start_lba + count; lba++) {
+        csprng_get_bytes(buf, 512);
+        usb_msc_write_sector(lba, buf);
     }
-    seed = val;
+
+    /* Pass 2: Zeroes */
+    serial_printf("[DESTRUCT] Pass 2: Zeroes\n");
+    memset(buf, 0x00, 512);
+    for (uint32_t lba = start_lba; lba < start_lba + count; lba++) {
+        usb_msc_write_sector(lba, buf);
+    }
+
+    /* Pass 3: CSPRNG noise again */
+    serial_printf("[DESTRUCT] Pass 3: CSPRNG noise\n");
+    for (uint32_t lba = start_lba; lba < start_lba + count; lba++) {
+        csprng_get_bytes(buf, 512);
+        usb_msc_write_sector(lba, buf);
+    }
 }
 
+/* ── destruct_trigger ───────────────────────────────────────────────────── */
 void destruct_trigger(const char *reason) {
-    serial_printf("\n[DESTRUCT] !!! CRITICAL TAMPER DETECTED: %s !!!\n", reason);
+    serial_printf("\n[DESTRUCT] !!! CRITICAL TAMPER: %s !!!\n", reason ? reason : "unknown");
 
-    // 1. Send simulated Tor distress beacon
-    serial_printf("[BEACON] Establishing onion circuit: [STYXOS -> TOR -> VPS-DEAD-DROP]\n");
-    for (volatile int d = 0; d < 10000000; d++);
-
-    serial_printf("[BEACON] --- TOR DISTRESS BEACON SENT ---\n");
-    serial_printf("[BEACON] Destination: https://styxos-dead-drop.onion/alert\n");
-    serial_printf("[BEACON] Payload:\n");
-    serial_printf("  {\n");
-    serial_printf("    \"event\": \"TAMPER_ALERT\",\n");
-    serial_printf("    \"node\": \"STYXOS_NODE_01\",\n");
-    serial_printf("    \"reason\": \"%s\",\n", reason);
-    serial_printf("    \"action\": \"SELF_DESTRUCT_KEY_WIPE\"\n");
-    serial_printf("  }\n");
-    serial_printf("[BEACON] ---------------------------------\n\n");
-
-    // 500ms fallback timeout delay
-    serial_printf("[DESTRUCT] Waiting 500ms beacon transmission fallback window...\n");
-    for (volatile int d = 0; d < 50000000; d++);
-
-    // 2. Perform 3-Pass Secure Overwrite on disk sectors 1-3
-    uint8_t wipe_buf[512];
-    serial_printf("[DESTRUCT] Wiping partition key slots (Sectors 1-3)...\n");
-
-    // Pass 1: CSPRNG Noise
-    serial_printf("[DESTRUCT] Pass 1: Cryptographic noise...\n");
-    fill_csprng(wipe_buf, 512);
-    for (uint32_t lba = 1; lba <= 3; lba++) {
-        usb_msc_write_sector(lba, wipe_buf);
+    /* 1. Send real UDP distress beacon before wiping */
+    serial_printf("[DESTRUCT] Transmitting distress beacon...\n");
+    bool beacon_sent = net_send_beacon(reason);
+    if (beacon_sent) {
+        serial_printf("[DESTRUCT] Beacon transmitted. Waiting 500ms for propagation...\n");
+    } else {
+        serial_printf("[DESTRUCT] Beacon failed (no NIC or network). Proceeding to wipe.\n");
     }
 
-    // Pass 2: Clean Zeroes
-    serial_printf("[DESTRUCT] Pass 2: Hard zeroes...\n");
-    memset(wipe_buf, 0, 512);
-    for (uint32_t lba = 1; lba <= 3; lba++) {
-        usb_msc_write_sector(lba, wipe_buf);
-    }
+    /* 500ms window: spin-wait */
+    for (volatile int d = 0; d < 50000000; d++) __asm__ volatile("pause");
 
-    // Pass 3: CSPRNG Noise
-    serial_printf("[DESTRUCT] Pass 3: Cryptographic noise...\n");
-    fill_csprng(wipe_buf, 512);
-    for (uint32_t lba = 1; lba <= 3; lba++) {
-        usb_msc_write_sector(lba, wipe_buf);
-    }
+    /* 2. Disable XTS/GCM to write raw wipe data to USB */
+    bool saved_enc = g_encryption_enabled;
+    g_encryption_enabled = false;
 
-    serial_printf("[DESTRUCT] Memory key pools zeroed.\n");
-    serial_printf("[DESTRUCT] SECURE SELF-DESTRUCT WIPE COMPLETED. HALTING.\n");
+    /* Wipe key material zone: sectors 1-9 (boot, counter, merkle root, key slots) */
+    wipe_sectors(1, 9);
 
-    __asm__ volatile ("cli");
-    for (;;) {
-        __asm__ volatile ("hlt");
-    }
+    /* Wipe ORAM region header: sector 500 */
+    wipe_sectors(500, 1);
+
+    g_encryption_enabled = saved_enc;
+
+    /* 3. Zero in-RAM key material */
+    extern uint8_t g_auth_derived_key[64];
+    memset(g_auth_derived_key, 0, 64);
+
+    serial_printf("[DESTRUCT] All key material wiped. System halted.\n");
+
+    __asm__ volatile("cli");
+    for (;;) __asm__ volatile("hlt");
 }

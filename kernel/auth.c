@@ -312,7 +312,7 @@ bool auth_preboot(void) {
         }
 
         // Delay to let the user see the result
-        for (volatile int d = 0; d < 100000000; d++);
+        for (volatile int d = 0; d < 500000; d++);
 
         if (!fido2_ok) {
             g_failed_attempts++;
@@ -360,7 +360,7 @@ bool auth_preboot(void) {
             fb_draw_string(bx + 30, by + 210, "ACCESS GRANTED. Booting StyxOS...", 0x0034D399);
             
             // Delay to let the user see the success message
-            for (volatile int d = 0; d < 150000000; d++);
+            for (volatile int d = 0; d < 500000; d++);
             
             // Re-enable interrupts
             __asm__ volatile ("sti");
@@ -372,7 +372,7 @@ bool auth_preboot(void) {
                 trigger_tamper_lockout();
             }
             // Delay before retry screen
-            for (volatile int d = 0; d < 150000000; d++);
+            for (volatile int d = 0; d < 500000; d++);
         }
     }
 }

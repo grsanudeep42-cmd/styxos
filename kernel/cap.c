@@ -2,6 +2,7 @@
 #include "serial.h"
 #include "task.h"
 #include "sched.h"
+#include "string.h"
 
 /*
  * cap.c — Capability engine implementation.
@@ -305,4 +306,14 @@ const char *cap_err_str(cap_err_t err) {
         case CAP_ERR_OCCUPIED: return "CAP_ERR_OCCUPIED";
         default:               return "CAP_ERR_UNKNOWN";
     }
+}
+
+void cap_export_pool(void *dest_pool, void *dest_used) {
+    memcpy(dest_pool, ep_pool, sizeof(ep_pool));
+    memcpy(dest_used, ep_pool_used, sizeof(ep_pool_used));
+}
+
+void cap_import_pool(const void *src_pool, const void *src_used) {
+    memcpy(ep_pool, src_pool, sizeof(ep_pool));
+    memcpy(ep_pool_used, src_used, sizeof(ep_pool_used));
 }

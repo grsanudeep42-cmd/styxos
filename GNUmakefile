@@ -69,7 +69,10 @@ SRCS := kernel/main.c kernel/font.c kernel/fb.c kernel/string.c \
         kernel/aes.c \
         kernel/xts.c \
         kernel/integrity.c \
-        kernel/destruct.c
+        kernel/destruct.c \
+        kernel/gcm.c \
+        kernel/oram.c \
+        kernel/snapshot.c
 
 ASMS := kernel/isr.asm kernel/irq.asm kernel/task.asm kernel/syscall.asm
 OBJS := $(SRCS:.c=.o) $(ASMS:.asm=.asm.o)

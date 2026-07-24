@@ -53,6 +53,21 @@ task_t *sched_get_current(void) {
     return sched_current;
 }
 
+int sched_get_tasks(task_t **tasks, int max_tasks) {
+    int count = (queue_count < max_tasks) ? queue_count : max_tasks;
+    for (int i = 0; i < count; i++) {
+        tasks[i] = run_queue[i];
+    }
+    return count;
+}
+
+void sched_set_tasks(task_t **tasks, int count) {
+    queue_count = count;
+    for (int i = 0; i < count; i++) {
+        run_queue[i] = tasks[i];
+    }
+}
+
 /* ── Internal: find next READY task ─────────────────────────────────────── */
 
 static task_t *next_ready(void) {

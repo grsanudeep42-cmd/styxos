@@ -17,6 +17,8 @@ static int cursor_y = MARGIN_Y + 4 * LINE_H; // Starts on line 4
 
 static bool shift_pressed = false;
 
+volatile uint8_t g_last_scancode = 0;
+
 // Scan code translation tables for standard US keyboard layout set 1
 static const char scancode_to_ascii_nomod[] = {
     0,  27, '1', '2', '3', '4', '5', '6', '7', '8', /* 9 */
@@ -97,6 +99,7 @@ static const char scancode_to_ascii_shift[] = {
 static void keyboard_callback(struct registers *regs) {
     (void)regs;
     uint8_t scancode = inb(KEYBOARD_DATA_PORT);
+    g_last_scancode = scancode;
 
     // Track shift key presses and releases
     // Left shift press: 0x2A, Left shift release: 0xAA

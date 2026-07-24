@@ -28,6 +28,9 @@
 #include "crypto.h"
 #include "integrity.h"
 #include "destruct.h"
+#include "gcm.h"
+#include "oram.h"
+#include "snapshot.h"
 #include "io.h"
 #include "user_init.bin.h"
 
@@ -117,6 +120,130 @@ static void run_m9_verification_tests(void) {
     
     // This read should fail integrity check, trigger Tor distress beacon and 3-pass wipe!
     usb_msc_read_sector(10, read_data);
+}
+
+static void run_m10_verification_tests(task_t *t1) {
+    serial_printf("\n--- M10 INTEGRATION TEST SUITE ---\n");
+
+    // 1. GCM NIST self-tests
+    serial_printf("[TEST] Running GCM self-tests...\n");
+    if (aes_gcm_self_test() == 0) {
+        serial_printf("[TEST] PASSED: GCM NIST SP 800-38D vectors match.\n");
+    } else {
+        serial_printf("[TEST] FAILED: GCM self-tests!\n");
+        return;
+    }
+
+    // 2. PathORAM trace & overhead testing
+    serial_printf("[TEST] Running PathORAM self-tests...\n");
+    snapshot_init(); // initializes PathORAM internally
+    oram_reset_counters();
+
+    uint8_t dummy_data[512];
+    memset(dummy_data, 0xAA, 512);
+
+    serial_printf("[TEST] PathORAM: Writing dummy block to LBA 5...\n");
+    oram_access(5, 1, dummy_data);
+
+    serial_printf("[TEST] PathORAM: Reading block from LBA 5...\n");
+    uint8_t read_dummy[512];
+    memset(read_dummy, 0, 512);
+    oram_access(5, 0, read_dummy);
+
+    if (memcmp(dummy_data, read_dummy, 512) == 0) {
+        serial_printf("[TEST] PASSED: PathORAM read/write match.\n");
+    } else {
+        serial_printf("[TEST] ERROR: PathORAM read mismatch!\n");
+        return;
+    }
+    oram_print_stats();
+
+    // 3. E2E Session Snapshot & Resume Test
+    serial_printf("[TEST] Running Session Snapshot E2E Verification...\n");
+    if (!t1) {
+        serial_printf("[TEST] ERROR: Active user process task not found! Cannot verify snapshot.\n");
+        return;
+    }
+
+    // Setup initial state on task 1
+    t1->regs.rbx = 0xDEADC0DE;
+    
+    // Modify stack memory page (at 0x3FF000)
+    uint64_t *old_pml4 = vmm_get_pml4();
+    vmm_set_pml4(t1->pml4);
+    uint64_t phys = vmm_virt_to_phys(0x3FF000);
+    uint64_t *stack_ptr = (uint64_t *)(phys + vmm_get_hhdm_offset());
+    uint64_t original_val = stack_ptr[0];
+    stack_ptr[0] = 0xCAFEBABE;
+    vmm_set_pml4(old_pml4);
+
+    serial_printf("[TEST] Saving clean session snapshot to encrypted PathORAM...\n");
+    if (snapshot_save() != 0) {
+        serial_printf("[TEST] ERROR: Failed to save snapshot!\n");
+        return;
+    }
+
+    // Tamper with registers and stack to simulate session progression / modifications
+    t1->regs.rbx = 0xBAD11111;
+    vmm_set_pml4(t1->pml4);
+    stack_ptr[0] = 0xBAD22222;
+    vmm_set_pml4(old_pml4);
+
+    // Test Atomic Write / Integrity Check Rollback by corrupting block 0
+    serial_printf("[TEST] Simulating interrupted write (corrupting Block 0)...\n");
+    uint8_t corrupt_block[512];
+    memset(corrupt_block, 0xFF, 512);
+    // Write corrupted block 0 directly bypassing save
+    oram_access(0, 1, corrupt_block);
+
+    serial_printf("[TEST] Verifying restore rejection of corrupted snapshot...\n");
+    if (snapshot_restore() != 0) {
+        serial_printf("[TEST] PASSED: Interrupted/tampered snapshot successfully rejected.\n");
+    } else {
+        serial_printf("[TEST] ERROR: Restored corrupted snapshot! Integrity failure!\n");
+        return;
+    }
+
+    // Save snapshot again to get a valid one
+    t1->regs.rbx = 0xDEADC0DE;
+    vmm_set_pml4(t1->pml4);
+    stack_ptr[0] = 0xCAFEBABE;
+    vmm_set_pml4(old_pml4);
+    snapshot_save();
+
+    // Modify registers and memory again
+    t1->regs.rbx = 0xBAD11111;
+    vmm_set_pml4(t1->pml4);
+    stack_ptr[0] = 0xBAD22222;
+    vmm_set_pml4(old_pml4);
+
+    serial_printf("[TEST] Restoring session snapshot from valid encrypted PathORAM...\n");
+    if (snapshot_restore() != 0) {
+        serial_printf("[TEST] ERROR: Failed to restore valid snapshot!\n");
+        return;
+    }
+
+    // Check if registers and stack memory were restored correctly
+    vmm_set_pml4(t1->pml4);
+    uint64_t restored_val = stack_ptr[0];
+    vmm_set_pml4(old_pml4);
+
+    if (t1->regs.rbx == 0xDEADC0DE && restored_val == 0xCAFEBABE) {
+        serial_printf("[TEST] PASSED: Registers (RBX=%x) and user memory (Stack[0]=%x) successfully restored!\n",
+                      t1->regs.rbx, restored_val);
+    } else {
+        serial_printf("[TEST] ERROR: Restoration mismatch! RBX=%x, Stack[0]=%x\n",
+                      t1->regs.rbx, restored_val);
+        return;
+    }
+
+    // Clean up stack memory back to normal
+    vmm_set_pml4(t1->pml4);
+    stack_ptr[0] = original_val;
+    vmm_set_pml4(old_pml4);
+
+    serial_printf("[TEST] M10 INTEGRATION TESTS COMPLETED SUCCESSFULLY.\n");
+    halt();
 }
 
 /* ── Kernel entry ─────────────────────────────────────────────────────── */
@@ -520,26 +647,7 @@ void _start(void) {
         for (;;) __asm__ volatile("hlt");
     }
 
-    // -- M9: Verify Encryption and Self-Destruct --
-    if (usb_ok) {
-        serial_printf("\n[M9] PRESS 't' KEY NOW TO RUN M9 CRYPTO & SELF-DESTRUCT VERIFICATION TESTS...\n");
-        char choice = 0;
-        for (volatile int delay = 0; delay < 100000000; delay++) {
-            if (inb(0x64) & 1) {
-                uint8_t sc = inb(0x60);
-                if (sc == 0x14) { // 'T' scancode
-                    choice = 't';
-                    break;
-                }
-            }
-        }
-        if (choice == 't') {
-            run_m9_verification_tests();
-        } else {
-            serial_printf("[M9] Continuing to standard boot.\n");
-            g_encryption_enabled = false;
-        }
-    }
+
 
     uint64_t entry = 0;
     task_t *utask  = NULL;
@@ -589,6 +697,32 @@ void _start(void) {
     sched_init();
     sched_add(ktask);
     sched_add(utask);
+
+    // -- M9/M10: Verify Encryption, Self-Destruct or Session Snapshot --
+    if (usb_ok || 1) { // Prompt regardless since fallback task also needs snapshot tests
+        serial_printf("\n[M9/M10] PRESS 't' FOR M9 CRYPTO/SELF-DESTRUCT OR 's' FOR M10 SNAPSHOT VERIFICATION TESTS...\n");
+        char choice = 0;
+        g_last_scancode = 0;
+        for (volatile int delay = 0; delay < 50000000; delay++) {
+            uint8_t sc = g_last_scancode;
+            if (sc == 0x14) { // 'T' scancode
+                choice = 't';
+                break;
+            }
+            if (sc == 0x1F) { // 'S' scancode
+                choice = 's';
+                break;
+            }
+        }
+        if (choice == 't') {
+            run_m9_verification_tests();
+        } else if (choice == 's') {
+            run_m10_verification_tests(utask);
+        } else {
+            serial_printf("[M9/M10] Continuing to standard boot.\n");
+            g_encryption_enabled = false;
+        }
+    }
 
     serial_printf("[M6] Scheduler ready -- handing off to ring 3\n");
     serial_printf("--- M6 RING-3 BOOTSTRAP END ---\n\n");

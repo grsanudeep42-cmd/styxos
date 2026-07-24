@@ -188,3 +188,6 @@ cap_err_t cap_recv(cap_table_t *table, uint32_t slot_idx, ipc_msg_t *out);
  * Never returns NULL.
  */
 const char *cap_err_str(cap_err_t err);
+
+void cap_export_pool(void *dest_pool, void *dest_used);
+void cap_import_pool(const void *src_pool, const void *src_used);

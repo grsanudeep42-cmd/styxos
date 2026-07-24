@@ -69,3 +69,6 @@ void sched_unblock(task_t *task);
  * Used by task_entry_trampoline (in task.asm) and syscall dispatcher.
  */
 task_t *sched_get_current(void);
+
+int sched_get_tasks(task_t **tasks, int max_tasks);
+void sched_set_tasks(task_t **tasks, int count);

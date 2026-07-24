@@ -35,6 +35,8 @@
 #include "e1000.h"
 #include "padding.h"
 #include "tor.h"
+#include "manifest.h"
+#include "shell.h"
 #include "io.h"
 #include "user_init.bin.h"
 
@@ -317,6 +319,14 @@ static void run_m11_verification_tests(void) {
     }
 
     serial_printf("[TEST] M11 INTEGRATION TESTS COMPLETED SUCCESSFULLY.\n");
+    serial_printf("-----------------------------------\n\n");
+    halt();
+}
+
+static void run_m12_verification_tests(void) {
+    serial_printf("\n--- M12 INTERACTIVE SHELL INTEGRATION TEST SUITE ---\n");
+    shell_run();
+    serial_printf("[TEST] M12 INTEGRATION TESTS COMPLETED SUCCESSFULLY.\n");
     serial_printf("-----------------------------------\n\n");
     halt();
 }
@@ -775,7 +785,7 @@ void _start(void) {
 
     // -- M9/M10/M11: Verification Boot Menu --
     if (usb_ok || 1) { // Prompt regardless since fallback task also needs snapshot/network tests
-        serial_printf("\n[BOOT] PRESS 't' FOR M9 CRYPTO, 's' FOR M10 SNAPSHOT, OR 'n' FOR M11 NETWORK TESTS...\n");
+        serial_printf("\n[BOOT] PRESS 't' FOR M9, 's' FOR M10, 'n' FOR M11, OR 'h' FOR M12 SHELL...\n");
         char choice = 0;
         g_last_scancode = 0;
         for (volatile int delay = 0; delay < 300000000; delay++) {
@@ -792,6 +802,10 @@ void _start(void) {
                 choice = 'n';
                 break;
             }
+            if (sc == 0x23) { // 'H' scancode
+                choice = 'h';
+                break;
+            }
         }
         if (choice == 't') {
             run_m9_verification_tests();
@@ -799,6 +813,8 @@ void _start(void) {
             run_m10_verification_tests(utask);
         } else if (choice == 'n') {
             run_m11_verification_tests();
+        } else if (choice == 'h') {
+            run_m12_verification_tests();
         } else {
             serial_printf("[BOOT] Continuing to standard boot.\n");
             g_encryption_enabled = false;

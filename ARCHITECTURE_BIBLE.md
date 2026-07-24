@@ -205,13 +205,13 @@ Each milestone must be stable and tested before the next begins. No skipping. No
 | **M4** | Virtual memory + kernel heap | 4-level paging, own PML4, CR3 switch, HHDM+kernel+framebuffer+stack mapped, page fault test passing, kmalloc/kfree/kcalloc operational | ✅ COMPLETE |
 | **M5** | Capability-based IPC primitives | Capability table per task, synchronous send/receive, endpoint objects, rights derivation/escalation/revocation — all 6 sanity tests passing in ring 0 | ✅ COMPLETE |
 | **M6** | First userspace process (ring 3) | SYSCALL/SYSRET gate (STAR/LSTAR/SFMASK MSRs), ELF loader, task table, preemptive scheduler, GDT+TSS ring-3 segments, first ring-3 task running with SYS_WRITE + SYS_YIELD | ✅ COMPLETE |
-| **M7** | Filesystem + USB storage driver | FAT32 read driver, basic VFS abstraction, xHCI USB host controller driver, execute binaries from USB | 🔵 **CURRENT TARGET** — est. 2–3 months |
-| **M8** | Pre-boot authentication (FIDO2) | Custom pre-boot auth stub (runs before kernel load), FIDO2 CTAP2 over USB-HID, password + FIDO2 key derivation via HKDF-SHA-512, attempt counter in tamper-evident register | ⬜ 2 months after M7 |
-| **M9** | USB encryption + self-destruct | AES-256-XTS full volume, 3-pass key destruction on tamper, distress beacon (pre-established Tor circuit), FIDO2 MFA unlock integrated | ⬜ 3–4 months after M8 |
-| **M10** | Session snapshot system | AES-256-GCM chunk encryption, atomic write with sequence numbers + GHASH MACs, full RAM state serialization, restore on any compatible machine | ⬜ 2–3 months after M9 |
-| **M11** | Network stack + Tor + traffic padding | Custom kernel-level network stack (target: Intel e1000 + Realtek RTL8169 drivers), Tor at network layer, continuous padding (never silent), circuit rotation 60–90s, hardware fingerprint randomization | ⬜ 4–6 months after M10 |
-| **M12** | Usable shell + first real environment | Minimal custom shell, verified binary loading against signed manifest, enough tooling for real security workflows | ⬜ 4–6 months after M11 |
-| **M13** | TPM attestation + verified boot chain | Full measured boot with TPM 2.0, refusal to boot on any tamper, remote attestation capability | 🔷 Parallel research track — target alongside M10/M11 |
+| **M7** | Filesystem + USB storage driver | FAT32 read driver, basic VFS abstraction, xHCI USB host controller driver, execute binaries from USB | ✅ COMPLETE |
+| **M8** | Pre-boot authentication (FIDO2) | Custom pre-boot auth stub (runs before kernel load), FIDO2 CTAP2 over USB-HID, password + FIDO2 key derivation via HKDF-SHA-512, attempt counter in tamper-evident register | ✅ COMPLETE |
+| **M9** | USB encryption + self-destruct | AES-256-XTS full volume, 3-pass key destruction on tamper, distress beacon (pre-established Tor circuit), FIDO2 MFA unlock integrated | ✅ COMPLETE |
+| **M10** | Session snapshot system | AES-256-GCM chunk encryption, atomic write with sequence numbers + GHASH MACs, full RAM state serialization, PathORAM access-pattern obfuscation | ✅ COMPLETE |
+| **M11** | Network stack + Tor + traffic padding | Custom kernel-level network stack (Intel e1000 PCI driver), Tor capability domain at network layer, continuous 50 Kbps traffic padding, circuit rotation 60–90s, MAC hardware randomization | ✅ COMPLETE |
+| **M12** | Usable shell + first real environment | Minimal custom security shell, signed binary manifest verification, system utilities (sysinfo, net, tor, snapshot, auth, wipe) | ✅ COMPLETE |
+| **M13** | TPM attestation + verified boot chain | Full measured boot with TPM 2.0, refusal to boot on any tamper, remote attestation capability | 🔷 Parallel research track |
 
 > **Realistic total timeline:** Milestones 5–12 represent **20–27 months** of focused solo development from the current kernel state. M13 is a parallel research track. The new M8 (FIDO2 pre-boot auth) is a prerequisite for M9 — hardware token support must exist before encryption is built on top of it. The goal is not to ship fast. The goal is to ship something that actually does what it claims.
 

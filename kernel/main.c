@@ -740,6 +740,8 @@ void _start(void) {
     // -- Phase 15: Stateful TCP & PQC Hardening --
     tcp_init();
     pqc_selftest();
+    tor_init();
+
 
     // -- Phase 16: Hardware TPM 2.0 TIS Protocol & PCR Quote Verification --
     tpm2_init();
@@ -887,6 +889,7 @@ void _start(void) {
     // Kernel idle loop (reached after scheduler returns from initial switch)
     serial_printf("Styx OS: Kernel idle loop active.\n");
     for (;;) {
-        __asm__ volatile ("hlt");
+        __asm__ volatile ("sti; hlt");
     }
+
 }

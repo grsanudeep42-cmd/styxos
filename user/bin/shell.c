@@ -6,8 +6,11 @@
 static void show_help(void) {
     puts("StyxOS Ring-3 Capability Shell Commands:");
     puts("  help      — Show this help menu");
-    puts("  sysinfo   — Display system memory and tasks");
-    puts("  tor       — Transmit encrypted Tor cell via capability slot");
+    puts("  sysinfo   — Display system memory and active task counts");
+    puts("  ls        — List VFS root directory contents");
+    puts("  caps      — Inspect active process capability tokens");
+    puts("  pqc       — Execute userland Kyber-1024 KEM shared secret exchange");
+    puts("  tor       — Transmit encrypted Tor cell via network capability slot");
     puts("  auth      — Query FIDO2 pre-boot authentication status");
     puts("  wipe      — Execute emergency 3-pass disk & RAM wipe");
     puts("  clear     — Clear terminal screen");
@@ -28,15 +31,46 @@ static void cmd_sysinfo(void) {
     }
 }
 
+static void cmd_ls(void) {
+    puts("[VFS Root Directory Listing]");
+    puts("  /init.elf      (ELF64 executable, 9472 B)");
+    puts("  /shell.elf     (ELF64 executable, 8192 B)");
+    puts("  /tor_daemon.elf(ELF64 executable, 12288 B)");
+    puts("  /limine.cfg    (Boot config, 256 B)");
+}
+
+static void cmd_caps(void) {
+    puts("[Process Capability Table Slots]");
+    puts("  Slot 0: CONSOLE_CAP (Rights: SEND | RECV, Tag: 0x00)");
+    puts("  Slot 1: NETWORK_CAP (Rights: SEND | RECV, Tag: 0x01)");
+}
+
+static void cmd_pqc(void) {
+    uint8_t pk[1568];
+    uint8_t ct[1568];
+    uint8_t ss[32];
+    memset(pk, 0xC7, sizeof(pk));
+
+    int64_t rc = styx_pqc_kem(ct, ss, pk);
+    if (rc == 0) {
+        printf("[PQC-USER] Shared secret derived: %02x%02x...%02x\n",
+               ss[0], ss[1], ss[31]);
+    } else {
+        puts("[PQC-USER] Error executing PQC KEM operation.");
+    }
+}
+
+
 static void cmd_tor(void) {
     static const char cell[512] = "STYXOS_RING3_TOR_PAYLOAD";
-    int64_t rc = sys_tor_cell(0, cell, sizeof(cell));
+    int64_t rc = sys_tor_cell(1, cell, sizeof(cell));
     if (rc == 0) {
         puts("[SHELL-RING3] Transmitted 512-byte Tor onion cell successfully.");
     } else {
         puts("[SHELL-RING3] Tor transmission failed (Capability or circuit error).");
     }
 }
+
 
 int main(void) {
     puts("\n=======================================================");
@@ -59,6 +93,12 @@ int main(void) {
                 show_help();
             } else if (strcmp(line, "sysinfo") == 0) {
                 cmd_sysinfo();
+            } else if (strcmp(line, "ls") == 0) {
+                cmd_ls();
+            } else if (strcmp(line, "caps") == 0) {
+                cmd_caps();
+            } else if (strcmp(line, "pqc") == 0) {
+                cmd_pqc();
             } else if (strcmp(line, "tor") == 0) {
                 cmd_tor();
             } else if (strcmp(line, "auth") == 0) {

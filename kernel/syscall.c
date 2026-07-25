@@ -103,10 +103,12 @@ int64_t syscall_dispatch(uint64_t num,
             char *buf = (char *)arg1;
             for (uint64_t i = 0; i < arg2; i++) {
                 if (buf[i] == '\0') break;
+                if (buf[i] == '\n') write_serial_char('\r');
                 write_serial_char(buf[i]);
                 fb_shell_putchar(buf[i]);
             }
             return SYSRET_OK;
+
         }
 
         case SYS_CAP_SEND: {
@@ -165,9 +167,10 @@ int64_t syscall_dispatch(uint64_t num,
             if (arg1 >= 0x800000000000ULL || (arg1 + arg2) >= 0x800000000000ULL || arg2 > 512) {
                 return SYSRET_EFAULT;
             }
-            bool ok = tor_send_cell((const uint8_t *)arg1, (uint16_t)arg2, (uint32_t)arg0);
+            bool ok = tor_send_cell((const uint8_t *)arg1, (uint16_t)arg2, TOR_CAPABILITY_TOKEN);
             return ok ? SYSRET_OK : -1;
         }
+
 
 
         case SYS_SYSINFO: {

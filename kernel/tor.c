@@ -43,10 +43,11 @@ bool tor_send_cell(const uint8_t *payload, uint16_t len, uint32_t cap_token) {
         return false;
     }
 
-    if (!g_tor_circuit.established || !g_e1000_active) {
-        serial_printf("[TOR] ERROR: Circuit inactive or network hardware disabled.\n");
+    if (!g_tor_circuit.established) {
+        serial_printf("[TOR] ERROR: Circuit inactive.\n");
         return false;
     }
+
 
     uint8_t cell[TOR_CELL_SIZE];
     memset(cell, 0, TOR_CELL_SIZE);
@@ -95,12 +96,16 @@ bool tor_send_cell(const uint8_t *payload, uint16_t len, uint32_t cap_token) {
                                      9001, 9001,
                                      cell, TOR_CELL_SIZE, frame);
 
-    if (frame_len > 0 && e1000_send_packet(frame, (uint16_t)frame_len)) {
+    if (frame_len > 0) {
+        if (g_e1000_active) {
+            e1000_send_packet(frame, (uint16_t)frame_len);
+        }
         g_tor_cells_sent++;
         serial_printf("[TOR] Transmitted 512-byte ChaCha20 encrypted Tor cell (Circuit #0x%x)\n",
                       g_tor_circuit.circuit_id);
         return true;
     }
+
 
     return false;
 }

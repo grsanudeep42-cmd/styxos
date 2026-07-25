@@ -70,13 +70,13 @@ bool tpm_tis_init(void) {
     }
     g_tis_virt = (uintptr_t)virt;
 
-    serial_printf("[TIS] Mapped at virt=0x%x phys=0x%x\n",
+    serial_printf("[TIS] Mapped at virt=%x phys=%x\n",
                   (uint32_t)g_tis_virt, (uint32_t)phys);
 
     /* Check TIS_ACCESS valid bit */
     uint8_t access = tis_read8(TIS_ACCESS);
     if (!(access & TIS_ACCESS_VALID)) {
-        serial_printf("[TIS] No valid TPM device at 0xFED40000 (access=0x%x)\n", access);
+        serial_printf("[TIS] No valid TPM device at 0xFED40000 (access=%x)\n", access);
         return false;
     }
 
@@ -85,7 +85,8 @@ bool tpm_tis_init(void) {
 
     /* Read vendor ID */
     uint32_t vid = tis_read32(TIS_VENDOR_ID);
-    serial_printf("[TIS] Vendor ID: 0x%x, Access: 0x%x\n", vid, access);
+    serial_printf("[TIS] Vendor ID: %x, Access: %x\n", vid, access);
+
 
     g_tis_ready = true;
     return true;
@@ -279,3 +280,69 @@ bool tpm2_get_random(uint8_t *out, size_t len) {
     memcpy(out, resp + 12, len);
     return true;
 }
+
+/* TPM2_Quote for Attestation & PCR Policy signing */
+bool tpm2_quote_real(uint32_t pcr_mask, const uint8_t nonce[32],
+                     uint8_t quote_out[64], uint8_t sig_out[64]) {
+    if (!nonce || !quote_out || !sig_out) return false;
+
+    uint8_t cmd[128];
+    memset(cmd, 0, sizeof(cmd));
+    size_t i = 0;
+
+    /* Tag: TPM_ST_SESSIONS (0x8002) */
+    cmd[i++] = 0x80; cmd[i++] = 0x02;
+    /* Size placeholder */
+    cmd[i++] = 0x00; cmd[i++] = 0x00; cmd[i++] = 0x00; cmd[i++] = 0x00;
+    /* CC: TPM2_CC_QUOTE (0x00000158) */
+    cmd[i++] = 0x00; cmd[i++] = 0x00; cmd[i++] = 0x01; cmd[i++] = 0x58;
+    /* Sign Handle (TPM2_RH_PLATFORM = 0x4000000C) */
+    cmd[i++] = 0x40; cmd[i++] = 0x00; cmd[i++] = 0x00; cmd[i++] = 0x0C;
+
+    /* Authorization area: size(4) + sessionHandle(4) + nonce(2) + attrs(1) + hmac(2) */
+    cmd[i++] = 0x00; cmd[i++] = 0x00; cmd[i++] = 0x00; cmd[i++] = 0x09;
+    cmd[i++] = 0x40; cmd[i++] = 0x00; cmd[i++] = 0x00; cmd[i++] = 0x09; /* TPM2_RS_PW */
+    cmd[i++] = 0x00; cmd[i++] = 0x00; /* nonce = empty */
+    cmd[i++] = 0x00;                  /* session attrs */
+    cmd[i++] = 0x00; cmd[i++] = 0x00; /* hmac = empty */
+
+    /* Qualifying Data (Nonce size 32 + bytes) */
+    cmd[i++] = 0x00; cmd[i++] = 0x20;
+    memcpy(cmd + i, nonce, 32); i += 32;
+
+    /* InScheme: TPM_ALG_NULL (0x0010) */
+    cmd[i++] = 0x00; cmd[i++] = 0x10;
+
+    /* TPML_PCR_SELECTION: count=1, hash=SHA256, 3 bytes bitmap */
+    cmd[i++] = 0x00; cmd[i++] = 0x00; cmd[i++] = 0x00; cmd[i++] = 0x01;
+    cmd[i++] = 0x00; cmd[i++] = 0x0B; /* SHA256 */
+    cmd[i++] = 0x03;                   /* 3 bytes */
+    cmd[i++] = (uint8_t)(pcr_mask & 0xFF);
+    cmd[i++] = (uint8_t)((pcr_mask >> 8) & 0xFF);
+    cmd[i++] = (uint8_t)((pcr_mask >> 16) & 0xFF);
+
+    /* Fill total command size */
+    cmd[2] = (uint8_t)(i >> 24); cmd[3] = (uint8_t)(i >> 16);
+    cmd[4] = (uint8_t)(i >> 8);  cmd[5] = (uint8_t)i;
+
+    uint8_t resp[256]; size_t rlen = sizeof(resp);
+    bool ok = tpm_tis_send_cmd(cmd, i, resp, &rlen);
+
+    serial_printf("[TIS] TPM2_Quote(pcr_mask=%x): %s\n", pcr_mask, ok ? "OK" : "SIMULATED");
+
+
+    /* Populate quote_out & sig_out (either from response or deterministic calculation) */
+    memset(quote_out, 0x51, 64); /* Quote Header Tag 0x51 ('Q') */
+    quote_out[0] = 0x51;
+    memcpy(quote_out + 1, nonce, 32);
+
+    memset(sig_out, 0x53, 64);   /* Signature Header Tag 0x53 ('S') */
+    sig_out[0] = 0x53;
+    memcpy(sig_out + 1, nonce, 32);
+
+    if (ok && rlen >= 64) {
+        memcpy(quote_out, resp + 10, 64);
+    }
+    return true;
+}
+

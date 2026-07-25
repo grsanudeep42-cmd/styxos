@@ -41,6 +41,8 @@
 #define TPM2_CC_GET_RANDOM   0x0000017BU
 #define TPM2_CC_STARTUP      0x00000144U
 #define TPM2_CC_SELF_TEST    0x00000143U
+#define TPM2_CC_QUOTE        0x00000158U
+
 
 /* TPM2 Response codes */
 #define TPM2_RC_SUCCESS  0x00000000U
@@ -59,3 +61,6 @@ bool tpm2_pcr_extend_real(uint32_t pcr_index,
                            const uint8_t sha256_digest[32]);
 bool tpm2_pcr_read_real(uint32_t pcr_index, uint8_t digest_out[32]);
 bool tpm2_get_random(uint8_t *out, size_t len);
+bool tpm2_quote_real(uint32_t pcr_mask, const uint8_t nonce[32],
+                     uint8_t quote_out[64], uint8_t sig_out[64]);
+

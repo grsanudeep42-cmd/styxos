@@ -741,9 +741,17 @@ void _start(void) {
     tcp_init();
     pqc_selftest();
 
+    // -- Phase 16: Hardware TPM 2.0 TIS Protocol & PCR Quote Verification --
+    tpm2_init();
+    if (!tpm2_verify_attestation()) {
+        serial_printf("[TPM2] FATAL: Boot Gating Active — TPM 2.0 Quote Attestation Failed!\n");
+        for (;;) __asm__ volatile("hlt");
+    }
+
     // 3. Program STAR/LSTAR/SFMASK MSRs for SYSCALL fast-path
     serial_printf("[M6] Initializing syscall gate...\n");
     syscall_init();
+
 
 
     // 4. Initialize task table

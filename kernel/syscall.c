@@ -9,6 +9,8 @@
 #include "fb_shell.h"
 #include "tcp.h"
 #include "pqc.h"
+#include "destruct.h"
+
 
 /*
  * syscall.c — System call handling.
@@ -251,6 +253,20 @@ int64_t syscall_dispatch(uint64_t num,
             int res = kyber1024_encapsulate((uint8_t *)arg0, (uint8_t *)arg1, (const uint8_t *)arg2);
             return (int64_t)res;
         }
+
+        case SYS_EMERGENCY_WIPE: {
+            /* Capability check: Console capability required in slot arg0 */
+            cap_slot_t *slot;
+            cap_err_t err = cap_lookup(current->cap_table, (uint32_t)arg0,
+                                       CAP_TYPE_ENDPOINT, CAP_RIGHT_SEND, &slot);
+            if (err != CAP_OK) {
+                return SYSRET_EACCESS;
+            }
+            serial_printf("[SYSCALL] Emergency Wipe triggered by Ring-3 Process Task %d!\n", current->id);
+            destruct_trigger("Ring-3 Shell REPL Wipe Command");
+            return SYSRET_OK;
+        }
+
 
         default:
             serial_printf("[SYSCALL] Unknown system call number: %d\n", (int)num);

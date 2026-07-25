@@ -3,13 +3,20 @@
 #include "pmm.h"
 #include "serial.h"
 #include "string.h"
+#include "manifest.h"
 
 /*
  * elf.c — Minimal ELF64 loader implementation.
  */
 
 int elf_load(task_t *task, const uint8_t *elf_data, size_t size) {
+    if (!manifest_verify_elf("init", elf_data, size)) {
+        serial_printf("[ELF] FATAL: Cryptographic manifest verification failed — aborting load!\n");
+        return -6;
+    }
+
     if (size < sizeof(elf64_header_t)) {
+
         serial_printf("[ELF] ERROR: ELF data too small\n");
         return -1;
     }

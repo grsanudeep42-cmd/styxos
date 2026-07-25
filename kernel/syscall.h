@@ -41,8 +41,10 @@
 #define SYS_SEND       10  /* send data over TCP socket                    */
 #define SYS_RECV       11  /* receive data from TCP socket                 */
 #define SYS_PQC_KEM    12  /* perform Kyber-1024 PQC key encapsulation     */
+#define SYS_EMERGENCY_WIPE 13 /* trigger emergency 3-pass erasure & halt     */
 
-#define SYS_MAX        13  /* total number of syscalls in StyxOS table     */
+#define SYS_MAX        14  /* total number of syscalls in StyxOS table     */
+
 
 
 

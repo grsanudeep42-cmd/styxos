@@ -12,8 +12,10 @@
 .global sys_send
 .global sys_recv
 .global sys_pqc_kem
+.global sys_emergency_wipe
 
 .text
+
 
 /* int64_t sys_yield(void) */
 sys_yield:
@@ -95,4 +97,11 @@ sys_pqc_kem:
     mov $12, %rax
     syscall
     ret
+
+/* int64_t sys_emergency_wipe(uint32_t slot) */
+sys_emergency_wipe:
+    mov $13, %rax
+    syscall
+    ret
+
 

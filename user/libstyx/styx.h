@@ -30,4 +30,6 @@ int styx_connect(uint32_t net_slot, int sock, uint32_t ip, uint16_t port);
 int styx_send(uint32_t net_slot, int sock, const void *buf, size_t len);
 int styx_recv(uint32_t net_slot, int sock, void *buf, size_t max_len);
 int styx_pqc_kem(void *ct, void *ss, const void *pk);
+int styx_emergency_wipe(void);
+
 

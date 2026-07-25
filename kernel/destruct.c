@@ -59,7 +59,8 @@ void destruct_trigger(const char *reason) {
     }
 
     /* 500ms window: spin-wait */
-    for (volatile int d = 0; d < 50000000; d++) __asm__ volatile("pause");
+    for (volatile int d = 0; d < 500000; d++) __asm__ volatile("pause");
+
 
     /* 2. Disable XTS/GCM to write raw wipe data to USB */
     bool saved_enc = g_encryption_enabled;

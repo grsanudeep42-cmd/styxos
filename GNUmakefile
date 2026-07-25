@@ -176,8 +176,11 @@ kernel/user_init.bin.h: user/bin/init.elf
 	",\n".join("  " + ", ".join(f"0x{b:02x}" for b in d[i:i+12]) for i in range(0,len(d),12)) + \
 	"\n};\nunsigned int user_user_elf_len = " + str(len(d)) + ";\n")'
 
+kernel/main.o: kernel/main.c kernel/user_init.bin.h
+
 # ── Link the kernel ELF ───────────────────────────────────────────────────
 $(KERNEL): $(OBJS) $(USER_ELFS) kernel/user_init.bin.h
+
 	@echo "[LD] $(KERNEL)"
 	$(LD) $(LDFLAGS) $(OBJS) -o $(KERNEL)
 

@@ -166,3 +166,8 @@ int styx_pqc_kem(void *ct, void *ss, const void *pk) {
     return (int)sys_pqc_kem(ct, ss, pk);
 }
 
+int styx_emergency_wipe(void) {
+    return (int)sys_emergency_wipe(0); /* Console slot 0 authorization */
+}
+
+

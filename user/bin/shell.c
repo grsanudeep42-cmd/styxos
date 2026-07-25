@@ -105,7 +105,9 @@ int main(void) {
                 puts("FIDO2 Pre-Boot MFA Status: AUTHENTICATED (HKDF Master Key Active)");
             } else if (strcmp(line, "wipe") == 0) {
                 puts("[SECURITY ALERT] Emergency self-destruct initiated from Ring-3!");
+                styx_emergency_wipe();
             } else if (strcmp(line, "clear") == 0) {
+
                 puts("\033[2J\033[H");
             } else if (line_idx > 0) {
                 printf("Unknown command: %s\n", line);
